@@ -21,6 +21,22 @@ interface AuthState {
   clearError: () => void;
 }
 
+const parseErrorMessage = (err: any, fallback: string): string => {
+  if (err.response?.data) {
+    const data = err.response.data;
+    if (Array.isArray(data.errors) && data.errors.length > 0) {
+      return data.errors.map((e: any) => e.message).join(". ");
+    }
+    if (data.message) {
+      return data.message;
+    }
+  }
+  if (err.code === "ERR_NETWORK" || err.message === "Network Error" || !err.response) {
+    return "Cannot connect to server. Ensure backend is running on port 5000 and mobile device is on the same Wi-Fi.";
+  }
+  return err.message || fallback;
+};
+
 export const useAuthStore = create<AuthState>((set, get) => ({
   user: null,
   role: null,
@@ -32,7 +48,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
 
   login: async ({ email, password }: LoginPayload) => {
     try {
-      set({ error: null });
+      set({ error: null, isLoading: true });
       const res = await api.post("/auth/login", {
         email: email.trim().toLowerCase(),
         password,
@@ -62,9 +78,11 @@ export const useAuthStore = create<AuthState>((set, get) => ({
 
         return { success: true };
       }
-      return { success: false, message: res.data?.message || "Login failed" };
+      const message = res.data?.message || "Login failed";
+      set({ error: message, isLoading: false });
+      return { success: false, message };
     } catch (err: any) {
-      const message = err.response?.data?.message || "Invalid credentials or network failure";
+      const message = parseErrorMessage(err, "Invalid credentials or network failure");
       set({ error: message, isLoading: false });
       return { success: false, message };
     }
@@ -72,7 +90,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
 
   register: async (payload: RegisterPayload) => {
     try {
-      set({ error: null });
+      set({ error: null, isLoading: true });
       const res = await api.post("/auth/register", {
         ...payload,
         email: payload.email.trim().toLowerCase(),
@@ -101,9 +119,11 @@ export const useAuthStore = create<AuthState>((set, get) => ({
 
         return { success: true };
       }
-      return { success: false, message: res.data?.message || "Registration failed" };
+      const message = res.data?.message || "Registration failed";
+      set({ error: message, isLoading: false });
+      return { success: false, message };
     } catch (err: any) {
-      const message = err.response?.data?.message || "Registration error. Check your details.";
+      const message = parseErrorMessage(err, "Registration error. Check your details.");
       set({ error: message, isLoading: false });
       return { success: false, message };
     }
@@ -123,7 +143,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       }
       return { success: false, message: "Update failed" };
     } catch (err: any) {
-      return { success: false, message: err.response?.data?.message || "Network error" };
+      return { success: false, message: parseErrorMessage(err, "Network error") };
     }
   },
 
@@ -147,7 +167,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       }
       return { success: false, message: "Volunteer update failed" };
     } catch (err: any) {
-      return { success: false, message: err.response?.data?.message || "Network error" };
+      return { success: false, message: parseErrorMessage(err, "Network error") };
     }
   },
 

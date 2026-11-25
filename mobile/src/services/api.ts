@@ -1,19 +1,38 @@
 import axios from "axios";
 import * as SecureStore from "expo-secure-store";
+import {
+  clearServerBaseUrlCache,
+  ensureServerBaseUrl,
+  getApiBaseUrl,
+} from "./serverConfig";
 
-const API_URL = process.env.EXPO_PUBLIC_API_URL || "http://localhost:5000/api";
+export { getApiBaseUrl } from "./serverConfig";
+
+type RetryableRequest = {
+  _serverRetried?: boolean;
+  _retry?: boolean;
+  baseURL?: string;
+  headers: Record<string, string>;
+};
+
+const isNetworkFailure = (error: any): boolean =>
+  !error?.response || error?.code === "ERR_NETWORK" || error?.code === "ECONNABORTED";
 
 export const api = axios.create({
-  baseURL: API_URL,
+  baseURL: getApiBaseUrl(),
   timeout: 15000,
   headers: {
     "Content-Type": "application/json",
   },
 });
 
-// Request interceptor to attach JWT token
+// Discover the active backend port before the first request, then retry once
+// on a transport failure in case the backend moved ports since the last call.
 api.interceptors.request.use(
   async (config) => {
+    await ensureServerBaseUrl();
+    config.baseURL = getApiBaseUrl();
+
     try {
       const token = await SecureStore.getItemAsync("resqnet_access_token");
       if (token) {
@@ -27,29 +46,43 @@ api.interceptors.request.use(
   (error) => Promise.reject(error)
 );
 
-// Response interceptor for token refresh handling
 api.interceptors.response.use(
   (response) => response,
   async (error) => {
-    const originalRequest = error.config;
+    const originalRequest = error.config as RetryableRequest | undefined;
+    if (!originalRequest) return Promise.reject(error);
+
+    if (isNetworkFailure(error) && !originalRequest._serverRetried) {
+      originalRequest._serverRetried = true;
+      clearServerBaseUrlCache();
+      await ensureServerBaseUrl();
+      originalRequest.baseURL = getApiBaseUrl();
+      return api(originalRequest);
+    }
+
     if (error.response?.status === 401 && !originalRequest._retry) {
       originalRequest._retry = true;
       try {
         const refreshToken = await SecureStore.getItemAsync("resqnet_refresh_token");
         if (refreshToken) {
-          const res = await axios.post(`${API_URL}/auth/refresh-token`, { refreshToken });
+          const res = await axios.post(`${getApiBaseUrl()}/auth/refresh-token`, {
+            refreshToken,
+          });
           if (res.data?.success && res.data.data?.accessToken) {
-            await SecureStore.setItemAsync("resqnet_access_token", res.data.data.accessToken);
+            await SecureStore.setItemAsync(
+              "resqnet_access_token",
+              res.data.data.accessToken
+            );
             originalRequest.headers.Authorization = `Bearer ${res.data.data.accessToken}`;
             return api(originalRequest);
           }
         }
       } catch {
-        // Refresh token failed, clear credentials
         await SecureStore.deleteItemAsync("resqnet_access_token");
         await SecureStore.deleteItemAsync("resqnet_refresh_token");
       }
     }
+
     return Promise.reject(error);
   }
 );

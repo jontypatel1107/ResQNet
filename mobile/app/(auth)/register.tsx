@@ -80,6 +80,16 @@ export default function RegisterScreen() {
       return;
     }
 
+    if (!email.includes("@") || !email.includes(".")) {
+      setClientError("Please enter a valid email address.");
+      return;
+    }
+
+    if (phone.trim().replace(/\D/g, "").length < 8) {
+      setClientError("Phone number must contain at least 8 digits.");
+      return;
+    }
+
     if (password.length < 6) {
       setClientError("Password must be at least 6 characters.");
       return;
