@@ -45,6 +45,11 @@ const assistanceAssignmentSchema = new mongoose.Schema(
       default: null,
     },
 
+    cancelledAt: {
+      type: Date,
+      default: null,
+    },
+
     notes: {
       type: String,
       maxlength: 500,
