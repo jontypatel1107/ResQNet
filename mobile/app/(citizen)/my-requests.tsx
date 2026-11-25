@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useCallback, useState } from "react";
 import {
   View,
   Text,
@@ -8,8 +8,9 @@ import {
   ActivityIndicator,
   RefreshControl,
 } from "react-native";
-import { useRouter } from "expo-router";
+import { useFocusEffect, useRouter } from "expo-router";
 import { api } from "../../src/services/api";
+import { getSocket } from "../../src/services/socket";
 import { EmergencyRequest } from "../../src/types";
 import { Colors } from "../../src/constants/colors";
 
@@ -19,23 +20,37 @@ export default function MyRequestsScreen() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
 
-  const fetchMyEmergencies = async () => {
+  const fetchMyEmergencies = useCallback(async () => {
     try {
       const res = await api.get("/emergencies/my");
       if (res.data?.success) {
         setRequests(res.data.data.emergencies || []);
       }
     } catch {
-      // Load cached or empty
+      // Keep the last known list if refresh fails.
     } finally {
       setLoading(false);
       setRefreshing(false);
     }
-  };
-
-  useEffect(() => {
-    fetchMyEmergencies();
   }, []);
+
+  useFocusEffect(
+    useCallback(() => {
+      fetchMyEmergencies();
+
+      const socket = getSocket();
+      const onEmergencyUpdated = (emergency: EmergencyRequest) => {
+        setRequests((current) =>
+          current.map((item) => (item._id === emergency._id ? { ...item, ...emergency } : item))
+        );
+      };
+      socket.on("emergency_updated", onEmergencyUpdated);
+
+      return () => {
+        socket.off("emergency_updated", onEmergencyUpdated);
+      };
+    }, [fetchMyEmergencies])
+  );
 
   const renderItem = ({ item }: { item: EmergencyRequest }) => {
     const statusColor = Colors.status[item.status] || Colors.textSecondary;

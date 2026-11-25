@@ -93,5 +93,6 @@ export interface AssistanceAssignment {
   status: "pending" | "accepted" | "in_progress" | "completed" | "rejected" | "cancelled";
   acceptedAt?: string;
   completedAt?: string;
+  cancelledAt?: string;
   notes?: string;
 }

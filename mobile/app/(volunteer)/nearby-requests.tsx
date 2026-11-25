@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useCallback, useState } from "react";
 import {
   View,
   Text,
@@ -8,48 +8,79 @@ import {
   ActivityIndicator,
   Alert,
 } from "react-native";
-import { useRouter } from "expo-router";
+import { useFocusEffect, useRouter } from "expo-router";
 import { api } from "../../src/services/api";
+import { getSocket } from "../../src/services/socket";
 import { EmergencyRequest } from "../../src/types";
+import { isReadableAddress, toMapCoordinates } from "../../src/utils/location";
+import { getApiErrorMessage } from "../../src/utils/errors";
 import { Colors } from "../../src/constants/colors";
 
 export default function NearbyRequests() {
   const router = useRouter();
   const [requests, setRequests] = useState<EmergencyRequest[]>([]);
   const [loading, setLoading] = useState(true);
+  const [claimingId, setClaimingId] = useState<string | null>(null);
 
-  const fetchNearby = async () => {
+  const fetchNearby = useCallback(async () => {
     try {
       const res = await api.get("/volunteers/nearby");
       if (res.data?.success) {
         setRequests(res.data.data.emergencies || []);
       }
     } catch {
-      // Empty fallback
+      // Keep the last known list if refresh fails.
     } finally {
       setLoading(false);
     }
-  };
-
-  useEffect(() => {
-    fetchNearby();
   }, []);
+
+  useFocusEffect(
+    useCallback(() => {
+      fetchNearby();
+
+      const socket = getSocket();
+      const refresh = () => fetchNearby();
+      socket.on("new_emergency", refresh);
+      socket.on("emergency_updated", refresh);
+
+      return () => {
+        socket.off("new_emergency", refresh);
+        socket.off("emergency_updated", refresh);
+      };
+    }, [fetchNearby])
+  );
 
   const handleClaim = async (requestId: string) => {
     try {
+      setClaimingId(requestId);
       const res = await api.patch(`/assignments/${requestId}/accept`);
       if (res.data?.success) {
-        Alert.alert("Assignment Accepted", "You have claimed this emergency response task.", [
+        setRequests((current) => current.filter((item) => item._id !== requestId));
+        Alert.alert("Mission Accepted", "The SOS is now assigned to you. Start it from My Assignments.", [
           { text: "View Assignments", onPress: () => router.push("/(volunteer)/assignments") },
+          { text: "Stay Here", style: "cancel" },
         ]);
       }
-    } catch (err: any) {
-      Alert.alert("Claim Info", "Request logged. Proceed to Mission Details.");
-      router.push(`/emergency/${requestId}`);
+    } catch (error: unknown) {
+      Alert.alert(
+        "Could Not Accept Mission",
+        getApiErrorMessage(error, "Please try again or check the mission list.")
+      );
+      fetchNearby();
+    } finally {
+      setClaimingId(null);
     }
   };
 
   const renderItem = ({ item }: { item: EmergencyRequest }) => {
+    const mapCoords = toMapCoordinates(item.location);
+    const addressText = isReadableAddress(item.address)
+      ? item.address!.trim()
+      : mapCoords
+        ? "Location available on map"
+        : "Address not provided";
+
     return (
       <View style={styles.card}>
         <View style={styles.topRow}>
@@ -61,9 +92,7 @@ export default function NearbyRequests() {
 
         <Text style={styles.desc}>{item.description}</Text>
 
-        {item.address ? (
-          <Text style={styles.address}>📍 {item.address}</Text>
-        ) : null}
+        <Text style={styles.address}>📍 {addressText}</Text>
 
         <View style={styles.actions}>
           <TouchableOpacity
@@ -73,11 +102,31 @@ export default function NearbyRequests() {
             <Text style={styles.detailText}>Details</Text>
           </TouchableOpacity>
 
+          {mapCoords ? (
+            <TouchableOpacity
+              style={styles.mapBtn}
+              onPress={() =>
+                router.push(
+                  `/location-map?lat=${mapCoords.latitude}&lng=${mapCoords.longitude}&address=${encodeURIComponent(
+                    isReadableAddress(item.address) ? item.address!.trim() : ""
+                  )}&title=${encodeURIComponent(item.title)}`
+                )
+              }
+            >
+              <Text style={styles.mapBtnText}>Map</Text>
+            </TouchableOpacity>
+          ) : null}
+
           <TouchableOpacity
-            style={styles.claimBtn}
+            style={[styles.claimBtn, claimingId === item._id && styles.claimBtnDisabled]}
             onPress={() => handleClaim(item._id)}
+            disabled={claimingId !== null}
           >
-            <Text style={styles.claimText}>Accept Mission</Text>
+            {claimingId === item._id ? (
+              <ActivityIndicator color="#FFFFFF" size="small" />
+            ) : (
+              <Text style={styles.claimText}>Accept Mission</Text>
+            )}
           </TouchableOpacity>
         </View>
       </View>
@@ -181,12 +230,28 @@ const styles = StyleSheet.create({
     fontWeight: "600",
     color: Colors.textPrimary,
   },
+  mapBtn: {
+    flex: 1,
+    borderWidth: 1,
+    borderColor: Colors.info,
+    borderRadius: 10,
+    paddingVertical: 10,
+    alignItems: "center",
+  },
+  mapBtnText: {
+    fontSize: 13,
+    fontWeight: "700",
+    color: Colors.info,
+  },
   claimBtn: {
     flex: 1,
     backgroundColor: Colors.success,
     borderRadius: 10,
     paddingVertical: 10,
     alignItems: "center",
+  },
+  claimBtnDisabled: {
+    opacity: 0.6,
   },
   claimText: {
     fontSize: 13,
