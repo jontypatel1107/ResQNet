@@ -38,6 +38,7 @@ Desktop.ini
 !.vscode/settings.json
 !.vscode/extensions.json
 .idea/
+.claude/
 *.swp
 *.swo
 
