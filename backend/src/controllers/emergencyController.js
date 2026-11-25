@@ -1,4 +1,6 @@
 import EmergencyRequest from "../models/EmergencyRequest.js";
+import AssistanceAssignment from "../models/AssistanceAssignment.js";
+import VolunteerProfile from "../models/VolunteerProfile.js";
 import { sendSuccess, sendError } from "../utils/response.js";
 import { getIO } from "../config/socket.js";
 
@@ -49,7 +51,49 @@ export const getEmergencyById = async (req, res, next) => {
     if (!emergency) {
       return sendError(res, 404, "Emergency request not found");
     }
-    return sendSuccess(res, 200, "Emergency details", { emergency });
+
+    let mission = null;
+    const assignment = await AssistanceAssignment.findOne({
+      requestId: emergency._id,
+      status: { $in: ["accepted", "in_progress", "completed"] },
+    })
+      .populate("volunteerId", "name phone role profileImage")
+      .sort({ acceptedAt: -1 });
+
+    if (assignment?.volunteerId) {
+      const requesterId = req.user._id.toString();
+      const isOwner = emergency.userId?._id?.toString?.() === requesterId;
+      const isAdmin = req.user.role === "admin";
+      const isAssignedVolunteer = assignment.volunteerId._id?.toString?.() === requesterId;
+
+      if (isOwner || isAdmin || isAssignedVolunteer) {
+        const profile = await VolunteerProfile.findOne({ userId: assignment.volunteerId._id }).select(
+          "skills availability serviceRadius verified location"
+        );
+
+        mission = {
+          _id: assignment._id.toString(),
+          status: assignment.status,
+          acceptedAt: assignment.acceptedAt || null,
+          completedAt: assignment.completedAt || null,
+          notes: assignment.notes || "",
+          volunteer: {
+            id: assignment.volunteerId._id.toString(),
+            name: assignment.volunteerId.name || "ResQNet volunteer",
+            phone: assignment.volunteerId.phone || null,
+            role: assignment.volunteerId.role || "volunteer",
+            profileImage: assignment.volunteerId.profileImage || null,
+            skills: profile?.skills || [],
+            availability: profile?.availability ?? false,
+            serviceRadius: profile?.serviceRadius ?? null,
+            verified: profile?.verified ?? false,
+            location: profile?.location || null,
+          },
+        };
+      }
+    }
+
+    return sendSuccess(res, 200, "Emergency details", { emergency, mission });
   } catch (error) {
     next(error);
   }

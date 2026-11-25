@@ -96,3 +96,31 @@ export interface AssistanceAssignment {
   cancelledAt?: string;
   notes?: string;
 }
+
+export interface ResponderInfo {
+  id: string;
+  name: string;
+  phone?: string | null;
+  role: UserRole;
+  profileImage?: string | null;
+  skills?: VolunteerSkill[];
+  availability?: boolean;
+  serviceRadius?: number | null;
+  verified?: boolean;
+  location?: GeoLocation | null;
+}
+
+export interface MissionInfo {
+  _id: string;
+  status: AssistanceAssignment["status"];
+  acceptedAt?: string;
+  completedAt?: string;
+  notes?: string;
+  volunteer: ResponderInfo;
+}
+
+export interface MissionAcceptedPayload {
+  emergency: EmergencyRequest;
+  mission: MissionInfo;
+  url: string;
+}

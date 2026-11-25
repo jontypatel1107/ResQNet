@@ -103,9 +103,15 @@ export default function CreateEmergency() {
       setLoading(true);
       const res = await api.post("/emergencies", payload);
       if (res.data?.success) {
-        Alert.alert("SOS Transmitted", "Emergency dispatch request has been logged.", [
-          { text: "View Requests", onPress: () => router.push("/(citizen)/my-requests") },
-        ]);
+        const createdId = res.data?.data?.emergency?._id;
+        if (createdId) {
+          // Move straight to the live status screen so the citizen can see PENDING.
+          router.replace(`/emergency/${createdId}`);
+        } else {
+          Alert.alert("SOS Transmitted", "Emergency dispatch request has been logged.", [
+            { text: "View Requests", onPress: () => router.push("/(citizen)/my-requests") },
+          ]);
+        }
       }
     } catch (error: unknown) {
       const online = await isOnline();

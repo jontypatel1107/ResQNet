@@ -1,8 +1,11 @@
 import mongoose from "mongoose";
 import AssistanceAssignment from "../models/AssistanceAssignment.js";
 import EmergencyRequest from "../models/EmergencyRequest.js";
+import User from "../models/User.js";
+import VolunteerProfile from "../models/VolunteerProfile.js";
 import { sendSuccess, sendError } from "../utils/response.js";
 import { getIO } from "../config/socket.js";
+import { sendNotification } from "../services/notificationService.js";
 
 const ACTIVE_ASSIGNMENT_STATUSES = ["pending", "accepted", "in_progress"];
 const OPEN_EMERGENCY_STATUSES = ["pending", "assigned"];
@@ -68,6 +71,90 @@ const emitAssignmentUpdate = (assignment, emergency) => {
   }
 };
 
+/** Build the responder information a citizen is allowed to see after acceptance. */
+const buildMissionForCitizen = async (assignment, emergency) => {
+  const volunteerId = assignment.volunteerId?.toString?.() || assignment.volunteerId;
+
+  const [volunteerUser, volunteerProfile] = await Promise.all([
+    User.findById(volunteerId).select("name phone role profileImage"),
+    VolunteerProfile.findOne({ userId: volunteerId }).select(
+      "skills availability serviceRadius verified location"
+    ),
+  ]);
+
+  const volunteer = {
+    id: volunteerUser?._id?.toString?.() || volunteerId.toString(),
+    name: volunteerUser?.name || "ResQNet volunteer",
+    phone: volunteerUser?.phone || null,
+    role: volunteerUser?.role || "volunteer",
+    profileImage: volunteerUser?.profileImage || null,
+    skills: volunteerProfile?.skills || [],
+    availability: volunteerProfile?.availability ?? false,
+    serviceRadius: volunteerProfile?.serviceRadius ?? null,
+    verified: volunteerProfile?.verified ?? false,
+    location: volunteerProfile?.location || null,
+  };
+
+  return {
+    _id: assignment._id.toString(),
+    status: assignment.status,
+    acceptedAt: assignment.acceptedAt || null,
+    completedAt: assignment.completedAt || null,
+    notes: assignment.notes || "",
+    volunteer,
+  };
+};
+
+/** Push the accepted mission to the citizen's user room and notification inbox. */
+const emitMissionAccepted = async (assignment, emergency) => {
+  try {
+    const mission = await buildMissionForCitizen(assignment, emergency);
+    const citizenId = emergency.userId?.toString?.() || emergency.userId;
+
+    const payload = {
+      emergency: {
+        _id: emergency._id.toString(),
+        title: emergency.title,
+        description: emergency.description,
+        category: emergency.category,
+        priority: emergency.priority,
+        status: emergency.status,
+        address: emergency.address || "",
+        location: emergency.location,
+        createdAt: emergency.createdAt,
+      },
+      mission,
+      url: `/emergency/${emergency._id.toString()}`,
+    };
+
+    try {
+      const io = getIO();
+      io.to(`user:${citizenId}`).emit("mission_accepted", payload);
+    } catch {
+      // Socket.IO is optional in standalone/controller tests.
+    }
+
+    await sendNotification({
+      userId: citizenId,
+      title: "Help is on the way",
+      message: `${mission.volunteer.name} accepted your SOS. Open the SOS to see responder details.`,
+      type: "assignment",
+      relatedId: emergency._id,
+      data: {
+        event: "mission_accepted",
+        url: payload.url,
+        emergencyId: emergency._id.toString(),
+      },
+    });
+
+    return payload;
+  } catch (error) {
+    // A notification failure must never fail an already accepted mission.
+    console.error("[Assignment] Failed to notify citizen:", error);
+    return null;
+  }
+};
+
 /**
  * Atomically claims the SOS for one volunteer.
  *
@@ -107,14 +194,14 @@ const claimEmergency = async ({ emergencyId, userId, assignmentId = null, isAdmi
       throw new ClaimError(409, "Another volunteer has already accepted this SOS");
     }
     if (["accepted", "in_progress"].includes(requestedAssignment.status)) {
-      return { assignment: requestedAssignment, emergency };
+      return { assignment: requestedAssignment, emergency, acceptedNow: false };
     }
   } else if (activeAssignment) {
     if (activeAssignment.volunteerId.toString() !== userId.toString()) {
       throw new ClaimError(409, "Another volunteer has already accepted this SOS");
     }
     if (["accepted", "in_progress"].includes(activeAssignment.status)) {
-      return { assignment: activeAssignment, emergency };
+      return { assignment: activeAssignment, emergency, acceptedNow: false };
     }
   }
 
@@ -182,7 +269,7 @@ const claimEmergency = async ({ emergencyId, userId, assignmentId = null, isAdmi
     throw error;
   }
 
-  return { assignment, emergency: claimedEmergency };
+  return { assignment, emergency: claimedEmergency, acceptedNow: true };
 };
 
 export const acceptAssignment = async (req, res, next) => {
@@ -226,6 +313,10 @@ export const acceptAssignment = async (req, res, next) => {
     }
 
     emitAssignmentUpdate(claimed.assignment, claimed.emergency);
+
+    if (claimed.acceptedNow) {
+      await emitMissionAccepted(claimed.assignment, claimed.emergency);
+    }
 
     return sendSuccess(res, 200, "SOS accepted", {
       assignment: claimed.assignment,

@@ -1,10 +1,23 @@
 import React, { useCallback, useState } from "react";
-import { View, Text, StyleSheet, ScrollView, ActivityIndicator, TouchableOpacity } from "react-native";
+import {
+  View,
+  Text,
+  StyleSheet,
+  ScrollView,
+  ActivityIndicator,
+  TouchableOpacity,
+  Linking,
+} from "react-native";
 import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
 import { api } from "../../src/services/api";
 import { getSocket } from "../../src/services/socket";
-import { EmergencyRequest } from "../../src/types";
-import { canViewEmergencyMap, isReadableAddress, toMapCoordinates } from "../../src/utils/location";
+import { EmergencyRequest, MissionAcceptedPayload, MissionInfo } from "../../src/types";
+import {
+  canViewEmergencyMap,
+  hasUsableCoordinates,
+  isReadableAddress,
+  toMapCoordinates,
+} from "../../src/utils/location";
 import { Colors } from "../../src/constants/colors";
 
 export default function EmergencyDetailScreen() {
@@ -12,6 +25,7 @@ export default function EmergencyDetailScreen() {
   const router = useRouter();
 
   const [emergency, setEmergency] = useState<EmergencyRequest | null>(null);
+  const [mission, setMission] = useState<MissionInfo | null>(null);
   const [loading, setLoading] = useState(true);
 
   const fetchDetail = useCallback(async () => {
@@ -20,10 +34,12 @@ export default function EmergencyDetailScreen() {
     try {
       const res = await api.get(`/emergencies/${id}`);
       if (res.data?.success) {
-        setEmergency(res.data.data.emergency);
+        setEmergency(res.data.data.emergency || null);
+        setMission(res.data.data.mission || null);
       }
     } catch {
       setEmergency(null);
+      setMission(null);
     } finally {
       setLoading(false);
     }
@@ -35,12 +51,22 @@ export default function EmergencyDetailScreen() {
 
       const socket = getSocket();
       const onEmergencyUpdated = (updated: EmergencyRequest) => {
-        if (updated._id === id) setEmergency(updated);
+        if (updated._id !== id) return;
+        setEmergency(updated);
+        if (updated.status === "cancelled") setMission(null);
       };
+      const onMissionAccepted = (payload: MissionAcceptedPayload) => {
+        if (payload?.emergency?._id !== id) return;
+        setEmergency(payload.emergency);
+        setMission(payload.mission);
+      };
+
       socket.on("emergency_updated", onEmergencyUpdated);
+      socket.on("mission_accepted", onMissionAccepted);
 
       return () => {
         socket.off("emergency_updated", onEmergencyUpdated);
+        socket.off("mission_accepted", onMissionAccepted);
       };
     }, [fetchDetail, id])
   );
@@ -67,6 +93,10 @@ export default function EmergencyDetailScreen() {
   const addressText = isReadableAddress(emergency.address)
     ? emergency.address!.trim()
     : "Address not provided";
+  const responderVisible = mission !== null && canViewEmergencyMap(emergency.status);
+  const responderSkills =
+    mission?.volunteer?.skills?.map((skill) => skill.replace(/_/g, " ")).join(", ") || "";
+  const responderLocationShared = hasUsableCoordinates(mission?.volunteer?.location ?? null);
 
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.content}>
@@ -83,6 +113,19 @@ export default function EmergencyDetailScreen() {
 
         <Text style={styles.title}>{emergency.title}</Text>
         <Text style={styles.category}>Category: {emergency.category.toUpperCase()}</Text>
+
+        {emergency.status === "pending" ? (
+          <View style={styles.pendingNotice}>
+            <Text style={styles.pendingIcon}>📡</Text>
+            <View style={styles.pendingCopy}>
+              <Text style={styles.pendingTitle}>SOS broadcast successfully</Text>
+              <Text style={styles.pendingText}>
+                Waiting for a volunteer to accept this mission. You will be notified as soon as help
+                is assigned.
+              </Text>
+            </View>
+          </View>
+        ) : null}
 
         <View style={styles.divider} />
 
@@ -108,6 +151,42 @@ export default function EmergencyDetailScreen() {
           <Text style={styles.mapLockedText}>
             🗺️ The map becomes available when a volunteer accepts this SOS.
           </Text>
+        ) : null}
+
+        {responderVisible && mission ? (
+          <View style={styles.responderCard}>
+            <Text style={styles.sectionHeader}>Responder Assigned</Text>
+            <View style={styles.responderNameRow}>
+              <Text style={styles.responderName}>👤 {mission.volunteer.name}</Text>
+              {mission.volunteer.verified ? (
+                <Text style={styles.verifiedBadge}>✓ Verified</Text>
+              ) : null}
+            </View>
+
+            <Text style={styles.responderMeta}>
+              📞 {mission.volunteer.phone || "Phone not shared"}
+            </Text>
+            {responderSkills ? (
+              <Text style={styles.responderMeta}>🛠️ Skills: {responderSkills}</Text>
+            ) : null}
+            {mission.acceptedAt ? (
+              <Text style={styles.responderMeta}>
+                Accepted: {new Date(mission.acceptedAt).toLocaleString()}
+              </Text>
+            ) : null}
+            {responderLocationShared ? (
+              <Text style={styles.responderMeta}>📍 Responder location is available to dispatch</Text>
+            ) : null}
+
+            {mission.volunteer.phone ? (
+              <TouchableOpacity
+                style={styles.callBtn}
+                onPress={() => Linking.openURL(`tel:${mission.volunteer.phone}`)}
+              >
+                <Text style={styles.callBtnText}>Call Responder</Text>
+              </TouchableOpacity>
+            ) : null}
+          </View>
         ) : null}
 
         <View style={styles.divider} />
@@ -237,6 +316,76 @@ const styles = StyleSheet.create({
     fontStyle: "italic",
     marginTop: 10,
     lineHeight: 18,
+  },
+  pendingNotice: {
+    flexDirection: "row",
+    gap: 10,
+    marginTop: 14,
+    padding: 12,
+    borderRadius: 12,
+    backgroundColor: Colors.warningLight,
+    borderWidth: 1,
+    borderColor: Colors.warning,
+  },
+  pendingIcon: {
+    fontSize: 18,
+  },
+  pendingCopy: {
+    flex: 1,
+  },
+  pendingTitle: {
+    fontSize: 13,
+    fontWeight: "700",
+    color: Colors.textPrimary,
+  },
+  pendingText: {
+    fontSize: 12,
+    color: Colors.textSecondary,
+    lineHeight: 18,
+    marginTop: 3,
+  },
+  responderCard: {
+    marginTop: 16,
+    padding: 14,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: Colors.info,
+    backgroundColor: Colors.surface,
+  },
+  responderNameRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    marginBottom: 6,
+  },
+  responderName: {
+    flexShrink: 1,
+    fontSize: 15,
+    fontWeight: "700",
+    color: Colors.textPrimary,
+  },
+  verifiedBadge: {
+    fontSize: 11,
+    fontWeight: "700",
+    color: Colors.success,
+  },
+  responderMeta: {
+    fontSize: 13,
+    color: Colors.textSecondary,
+    lineHeight: 19,
+    marginTop: 2,
+  },
+  callBtn: {
+    marginTop: 12,
+    paddingVertical: 11,
+    borderRadius: 10,
+    alignItems: "center",
+    backgroundColor: Colors.info,
+  },
+  callBtnText: {
+    color: "#FFFFFF",
+    fontSize: 13,
+    fontWeight: "700",
   },
   timestamp: {
     fontSize: 12,

@@ -1,14 +1,30 @@
 import { useEffect } from "react";
-import { Stack } from "expo-router";
+import { router, Stack } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import { useAuthStore } from "../src/store/authStore";
 import { startAutoSync } from "../src/services/connectivity";
 import { ensureServerBaseUrl } from "../src/services/serverConfig";
+import {
+  setupNotificationNavigation,
+  watchCitizenMissionAlerts,
+} from "../src/services/missionAlerts";
 import { Colors } from "../src/constants/colors";
 
 export default function RootLayout() {
   const initializeAuth = useAuthStore((state) => state.initializeAuth);
+  const userId = useAuthStore((state) => state.user?.id);
+  const role = useAuthStore((state) => state.role);
+
+  useEffect(() => {
+    const stopNavigation = setupNotificationNavigation((url) => router.push(url));
+    return stopNavigation;
+  }, []);
+
+  useEffect(() => {
+    const stopWatching = watchCitizenMissionAlerts(userId, role, (url) => router.push(url));
+    return stopWatching;
+  }, [userId, role]);
 
   useEffect(() => {
     let cancelled = false;
