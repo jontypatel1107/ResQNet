@@ -1,8 +1,10 @@
-import React, { useEffect, useState } from "react";
-import { View, Text, StyleSheet, ScrollView, ActivityIndicator, TouchableOpacity, Alert } from "react-native";
-import { useLocalSearchParams, useRouter } from "expo-router";
+import React, { useCallback, useState } from "react";
+import { View, Text, StyleSheet, ScrollView, ActivityIndicator, TouchableOpacity } from "react-native";
+import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
 import { api } from "../../src/services/api";
+import { getSocket } from "../../src/services/socket";
 import { EmergencyRequest } from "../../src/types";
+import { isReadableAddress, toMapCoordinates } from "../../src/utils/location";
 import { Colors } from "../../src/constants/colors";
 
 export default function EmergencyDetailScreen() {
@@ -12,33 +14,36 @@ export default function EmergencyDetailScreen() {
   const [emergency, setEmergency] = useState<EmergencyRequest | null>(null);
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    const fetchDetail = async () => {
-      try {
-        const res = await api.get(`/emergencies/${id}`);
-        if (res.data?.success) {
-          setEmergency(res.data.data.emergency);
-        }
-      } catch {
-        // Fallback placeholder
-        setEmergency({
-          _id: id || "temp-id",
-          userId: "user-1",
-          title: "Flash Flood Rescue Needed",
-          description: "Multiple individuals stranded on second floor. Water continuing to rise rapidly.",
-          category: "rescue",
-          priority: "critical",
-          location: { type: "Point", coordinates: [-122.4194, 37.7749] },
-          address: "Riverside Avenue, Sector 4",
-          status: "in_progress",
-          createdAt: new Date().toISOString(),
-        });
-      } finally {
-        setLoading(false);
+  const fetchDetail = useCallback(async () => {
+    if (!id) return;
+
+    try {
+      const res = await api.get(`/emergencies/${id}`);
+      if (res.data?.success) {
+        setEmergency(res.data.data.emergency);
       }
-    };
-    if (id) fetchDetail();
+    } catch {
+      setEmergency(null);
+    } finally {
+      setLoading(false);
+    }
   }, [id]);
+
+  useFocusEffect(
+    useCallback(() => {
+      fetchDetail();
+
+      const socket = getSocket();
+      const onEmergencyUpdated = (updated: EmergencyRequest) => {
+        if (updated._id === id) setEmergency(updated);
+      };
+      socket.on("emergency_updated", onEmergencyUpdated);
+
+      return () => {
+        socket.off("emergency_updated", onEmergencyUpdated);
+      };
+    }, [fetchDetail, id])
+  );
 
   if (loading) {
     return (
@@ -57,6 +62,10 @@ export default function EmergencyDetailScreen() {
   }
 
   const statusColor = Colors.status[emergency.status] || Colors.textSecondary;
+  const mapCoords = toMapCoordinates(emergency.location);
+  const addressText = isReadableAddress(emergency.address)
+    ? emergency.address!.trim()
+    : "Address not provided";
 
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.content}>
@@ -79,12 +88,21 @@ export default function EmergencyDetailScreen() {
         <Text style={styles.sectionHeader}>Incident Description</Text>
         <Text style={styles.description}>{emergency.description}</Text>
 
-        <Text style={styles.sectionHeader}>Location Coordinates</Text>
-        <Text style={styles.location}>
-          Longitude: {emergency.location.coordinates[0]}, Latitude: {emergency.location.coordinates[1]}
-        </Text>
-        {emergency.address ? (
-          <Text style={styles.address}>📍 {emergency.address}</Text>
+        <Text style={styles.sectionHeader}>Location</Text>
+        <Text style={styles.address}>📍 {addressText}</Text>
+        {mapCoords ? (
+          <TouchableOpacity
+            style={styles.mapBtn}
+            onPress={() =>
+              router.push(
+                `/location-map?lat=${mapCoords.latitude}&lng=${mapCoords.longitude}&address=${encodeURIComponent(
+                  isReadableAddress(emergency.address) ? emergency.address!.trim() : ""
+                )}&title=${encodeURIComponent(emergency.title)}`
+              )
+            }
+          >
+            <Text style={styles.mapBtnText}>🗺️ View on Map</Text>
+          </TouchableOpacity>
         ) : null}
 
         <View style={styles.divider} />
@@ -188,16 +206,25 @@ const styles = StyleSheet.create({
     color: Colors.textSecondary,
     lineHeight: 22,
   },
-  location: {
-    fontSize: 13,
-    color: Colors.info,
-    fontWeight: "600",
-  },
   address: {
     fontSize: 14,
     color: Colors.textPrimary,
     marginTop: 4,
     fontWeight: "500",
+    lineHeight: 20,
+  },
+  mapBtn: {
+    marginTop: 12,
+    borderWidth: 1,
+    borderColor: Colors.info,
+    borderRadius: 10,
+    paddingVertical: 10,
+    alignItems: "center",
+  },
+  mapBtnText: {
+    color: Colors.info,
+    fontSize: 13,
+    fontWeight: "700",
   },
   timestamp: {
     fontSize: 12,

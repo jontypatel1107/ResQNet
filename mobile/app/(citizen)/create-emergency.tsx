@@ -13,6 +13,9 @@ import { useRouter } from "expo-router";
 import * as Location from "expo-location";
 import { api } from "../../src/services/api";
 import { addToSyncQueue } from "../../src/database/sync";
+import { isOnline } from "../../src/services/connectivity";
+import { getApiErrorMessage, isNetworkError } from "../../src/utils/errors";
+import { formatGeocodedAddress } from "../../src/utils/location";
 import { Colors } from "../../src/constants/colors";
 
 const CATEGORIES = [
@@ -43,17 +46,38 @@ export default function CreateEmergency() {
       setFetchingLocation(true);
       const { status } = await Location.requestForegroundPermissionsAsync();
       if (status !== "granted") {
-        Alert.alert("Permission Denied", "Location permission is required to detect emergency coordinates.");
+        Alert.alert("Permission Denied", "Location permission is required to find your address.");
         return;
       }
+
       const loc = await Location.getCurrentPositionAsync({});
-      setCoords({
+      const location = {
         latitude: loc.coords.latitude,
         longitude: loc.coords.longitude,
-      });
-      setAddress(`Lat: ${loc.coords.latitude.toFixed(4)}, Lng: ${loc.coords.longitude.toFixed(4)}`);
+      };
+      setCoords(location);
+
+      // Reverse geocoding is native-only. If it is unavailable, keep the pin
+      // and ask the user for a landmark instead of showing raw coordinates.
+      let readableAddress = "";
+      try {
+        const results = await Location.reverseGeocodeAsync(location);
+        readableAddress = formatGeocodedAddress(results[0]);
+      } catch {
+        readableAddress = "";
+      }
+
+      if (readableAddress) {
+        setAddress(readableAddress);
+      } else {
+        setAddress("Current device location");
+        Alert.alert(
+          "Location Captured",
+          "We could not resolve a street address. Please add a landmark or address so responders can find you."
+        );
+      }
     } catch {
-      Alert.alert("GPS Error", "Failed to retrieve coordinates. Using default.");
+      Alert.alert("GPS Error", "Failed to retrieve your location. Please enter an address manually.");
     } finally {
       setFetchingLocation(false);
     }
@@ -83,14 +107,28 @@ export default function CreateEmergency() {
           { text: "View Requests", onPress: () => router.push("/(citizen)/my-requests") },
         ]);
       }
-    } catch {
-      // If network fails, queue to offline SQLite store!
-      await addToSyncQueue("POST", "/emergencies", payload);
-      Alert.alert(
-        "Saved Offline",
-        "No network detected. Your SOS has been saved locally and will auto-sync when back online.",
-        [{ text: "OK", onPress: () => router.push("/(citizen)/my-requests") }]
-      );
+    } catch (error: unknown) {
+      const online = await isOnline();
+      const transportFailure = online ? isNetworkError(error) : true;
+
+      if (transportFailure) {
+        // Only queue when the request never reached the server.
+        await addToSyncQueue("POST", "/emergencies", payload);
+        Alert.alert(
+          online ? "Server Unreachable" : "Saved Offline",
+          online
+            ? "Could not reach the ResQNet server. Your SOS is saved locally and will sync automatically."
+            : "No network detected. Your SOS has been saved locally and will auto-sync when back online.",
+          [{ text: "OK", onPress: () => router.push("/(citizen)/my-requests") }]
+        );
+      } else {
+        // The server responded with an error. Show the real reason instead of
+        // pretending the device is offline.
+        Alert.alert(
+          "SOS Not Sent",
+          getApiErrorMessage(error, "Failed to transmit the emergency request. Please try again.")
+        );
+      }
     } finally {
       setLoading(false);
     }
@@ -171,6 +209,21 @@ export default function CreateEmergency() {
           )}
         </TouchableOpacity>
       </View>
+
+      {coords ? (
+        <TouchableOpacity
+          style={styles.mapLink}
+          onPress={() =>
+            router.push(
+              `/location-map?lat=${coords.latitude}&lng=${coords.longitude}&address=${encodeURIComponent(
+                address
+              )}&title=${encodeURIComponent("Emergency Location")}`
+            )
+          }
+        >
+          <Text style={styles.mapLinkText}>🗺️ View location on map</Text>
+        </TouchableOpacity>
+      ) : null}
 
       <TouchableOpacity
         style={styles.submitBtn}
@@ -300,6 +353,16 @@ const styles = StyleSheet.create({
     color: "#FFFFFF",
     fontWeight: "700",
     fontSize: 13,
+  },
+  mapLink: {
+    alignSelf: "flex-start",
+    marginTop: 10,
+    paddingVertical: 6,
+  },
+  mapLinkText: {
+    color: Colors.info,
+    fontSize: 13,
+    fontWeight: "700",
   },
   submitBtn: {
     backgroundColor: Colors.emergency,
