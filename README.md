@@ -247,9 +247,11 @@ The interface adheres to modern emergency UI standards prioritizing rapid recogn
    ```
 2. Configure `.env` file (copy from `.env.example`):
    ```env
+   # Preferred port; the server tries 5001, 5002, ... if it is busy.
    PORT=5000
+   PORT_FALLBACK_ATTEMPTS=8
    NODE_ENV=development
-   MONGODB_URI=mongodb+srv://<USER>:<PASSWORD>@<CLUSTER>.mongodb.net/resqnet_db
+   MONGODB_URI=mongodb+srv://<USER>:<PASSWORD>@<CLUSTER>.mongodb.net/ResQNet
    JWT_ACCESS_SECRET=your_32_byte_random_secret_here
    JWT_REFRESH_SECRET=your_another_32_byte_random_secret_here
    CLOUDINARY_CLOUD_NAME=your_cloud_name
@@ -257,6 +259,8 @@ The interface adheres to modern emergency UI standards prioritizing rapid recogn
    CLOUDINARY_API_SECRET=your_api_secret
    CLIENT_URL=*
    ```
+   > The database name is the last path segment of `MONGODB_URI` (in this project: `ResQNet`). It is the name you expand under **Atlas -> Database -> Browse Collections**.
+
    > **MongoDB Atlas tip:** If you see `Could not connect to any servers in your MongoDB Atlas cluster`,
    > add your current public IP in **Atlas -> Network Access -> Add IP Address** (or allow `0.0.0.0/0`
    > for local development only). The startup log now prints your detected public IP when a connection
@@ -265,9 +269,31 @@ The interface adheres to modern emergency UI standards prioritizing rapid recogn
    ```powershell
    npm run dev
    ```
-4. Verify server health:
+4. Verify server health (use the port printed in the startup log if 5000 was busy):
    - `http://localhost:5000/`
    - `http://localhost:5000/api/health`
+
+   > The backend skips busy ports automatically (`5000`, `5001`, `5002`, ...). The mobile app
+   > auto-discovers the active port through `/api/health`, so you do not need to edit
+   > `mobile/.env` when the port changes.
+
+#### Demo / test accounts
+
+In development the backend automatically creates the accounts used by the
+login screen's **Quick Presets**. You can also reset them at any time:
+
+```powershell
+npm run seed:demo
+```
+
+| Role | Email | Password |
+| --- | --- | --- |
+| Citizen | `citizen@resqnet.org` | `Citizen123!` |
+| Volunteer | `volunteer@resqnet.org` | `Volunteer123!` |
+| Admin | `admin@resqnet.org` | `Admin@ResQNet2026` |
+
+> Admin credentials can be overridden with `ADMIN_EMAIL` / `ADMIN_PASSWORD` in
+> `backend/.env`. Set `SEED_DEMO_ON_START=false` to disable automatic demo seeding.
 
 ### Mobile Setup
 1. Open a second PowerShell terminal and navigate to `mobile`:
@@ -280,6 +306,7 @@ The interface adheres to modern emergency UI standards prioritizing rapid recogn
    EXPO_PUBLIC_SOCKET_URL=http://localhost:5000
    ```
    > **Note for Physical Devices**: Replace `localhost` with your machine's local LAN IP (e.g., `http://192.168.1.15:5000/api`).
+   > The port is auto-discovered, so `5000` here is only the first port the app probes.
 
 3. Start the Expo development server:
    ```powershell

@@ -17,6 +17,7 @@ import adminRoutes from "./routes/adminRoutes.js";
 import { notFoundHandler, errorHandler } from "./middleware/errorMiddleware.js";
 
 const app = express();
+const PROCESS_STARTED_AT = new Date().toISOString();
 
 // Security Middleware
 app.use(helmet());
@@ -61,6 +62,8 @@ app.get("/api/health", (req, res) => {
     service: "ResQNet Backend",
     status: isConnected ? "healthy" : "degraded",
     database,
+    port: Number(process.env.RESQNET_ACTUAL_PORT || process.env.PORT || 5000),
+    startedAt: PROCESS_STARTED_AT,
     timestamp: new Date().toISOString(),
   });
 });

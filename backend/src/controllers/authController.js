@@ -42,7 +42,9 @@ export const register = async (req, res, next) => {
       return sendError(res, 403, "Admin registration is not allowed through this route");
     }
 
-    const existingUser = await User.findOne({ email });
+    const normalizedEmail = email.trim().toLowerCase();
+
+    const existingUser = await User.findOne({ email: normalizedEmail });
     if (existingUser) {
       return sendError(res, 409, "An account with this email already exists");
     }
@@ -52,7 +54,7 @@ export const register = async (req, res, next) => {
 
     const user = await User.create({
       name,
-      email,
+      email: normalizedEmail,
       phone,
       passwordHash,
       role: role || "citizen",
@@ -100,7 +102,8 @@ export const login = async (req, res, next) => {
   try {
     const { email, password } = req.body;
 
-    const user = await User.findOne({ email }).select("+passwordHash");
+    const normalizedEmail = email.trim().toLowerCase();
+    const user = await User.findOne({ email: normalizedEmail }).select("+passwordHash");
     if (!user) {
       return sendError(res, 401, "Invalid email or password");
     }

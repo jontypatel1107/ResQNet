@@ -5,6 +5,7 @@ import "../config/dns.js"; // Reliable Atlas SRV resolution (shared with the ser
 import mongoose from "mongoose";
 import bcrypt from "bcryptjs";
 import User from "../models/User.js";
+import { getDemoAccounts } from "../config/demoAccounts.js";
 
 const seedAdmin = async () => {
   try {
@@ -17,10 +18,11 @@ const seedAdmin = async () => {
     console.log("Connecting to MongoDB...");
     await mongoose.connect(mongoUri);
 
-    const adminEmail = process.env.ADMIN_EMAIL || "admin@resqnet.org";
-    const adminPassword = process.env.ADMIN_PASSWORD || "Admin@ResQNet2026";
-    const adminName = "ResQNet Chief Administrator";
-    const adminPhone = "+1 555-0100";
+    const adminAccount = getDemoAccounts().find((account) => account.role === "admin");
+    const adminEmail = process.env.ADMIN_EMAIL?.trim().toLowerCase() || adminAccount.email;
+    const adminPassword = process.env.ADMIN_PASSWORD || adminAccount.password;
+    const adminName = adminAccount.name;
+    const adminPhone = adminAccount.phone;
 
     const existingAdmin = await User.findOne({ email: adminEmail });
     if (existingAdmin) {
