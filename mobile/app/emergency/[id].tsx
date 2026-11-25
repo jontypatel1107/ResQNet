@@ -4,7 +4,7 @@ import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
 import { api } from "../../src/services/api";
 import { getSocket } from "../../src/services/socket";
 import { EmergencyRequest } from "../../src/types";
-import { isReadableAddress, toMapCoordinates } from "../../src/utils/location";
+import { canViewEmergencyMap, isReadableAddress, toMapCoordinates } from "../../src/utils/location";
 import { Colors } from "../../src/constants/colors";
 
 export default function EmergencyDetailScreen() {
@@ -63,6 +63,7 @@ export default function EmergencyDetailScreen() {
 
   const statusColor = Colors.status[emergency.status] || Colors.textSecondary;
   const mapCoords = toMapCoordinates(emergency.location);
+  const showMap = mapCoords !== null && canViewEmergencyMap(emergency.status);
   const addressText = isReadableAddress(emergency.address)
     ? emergency.address!.trim()
     : "Address not provided";
@@ -90,7 +91,7 @@ export default function EmergencyDetailScreen() {
 
         <Text style={styles.sectionHeader}>Location</Text>
         <Text style={styles.address}>📍 {addressText}</Text>
-        {mapCoords ? (
+        {showMap && mapCoords ? (
           <TouchableOpacity
             style={styles.mapBtn}
             onPress={() =>
@@ -103,6 +104,10 @@ export default function EmergencyDetailScreen() {
           >
             <Text style={styles.mapBtnText}>🗺️ View on Map</Text>
           </TouchableOpacity>
+        ) : !canViewEmergencyMap(emergency.status) && mapCoords ? (
+          <Text style={styles.mapLockedText}>
+            🗺️ The map becomes available when a volunteer accepts this SOS.
+          </Text>
         ) : null}
 
         <View style={styles.divider} />
@@ -225,6 +230,13 @@ const styles = StyleSheet.create({
     color: Colors.info,
     fontSize: 13,
     fontWeight: "700",
+  },
+  mapLockedText: {
+    color: Colors.textMuted,
+    fontSize: 12,
+    fontStyle: "italic",
+    marginTop: 10,
+    lineHeight: 18,
   },
   timestamp: {
     fontSize: 12,

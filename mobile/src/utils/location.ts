@@ -1,4 +1,4 @@
-import { GeoLocation } from "../types";
+import { EmergencyStatus, GeoLocation } from "../types";
 
 export type MapCoordinates = {
   latitude: number;
@@ -43,6 +43,10 @@ export const toMapCoordinates = (location?: GeoLocation | null): MapCoordinates 
   const [longitude, latitude] = location!.coordinates as [number, number];
   return { latitude, longitude };
 };
+
+/** Citizens can track the responder location only after a volunteer accepts. */
+export const canViewEmergencyMap = (status?: EmergencyStatus | null): boolean =>
+  status === "accepted" || status === "in_progress" || status === "resolved";
 
 /** Builds a readable address from Expo Location's reverse-geocode result. */
 export const formatGeocodedAddress = (address?: GeocodedAddress | null): string => {

@@ -210,21 +210,6 @@ export default function CreateEmergency() {
         </TouchableOpacity>
       </View>
 
-      {coords ? (
-        <TouchableOpacity
-          style={styles.mapLink}
-          onPress={() =>
-            router.push(
-              `/location-map?lat=${coords.latitude}&lng=${coords.longitude}&address=${encodeURIComponent(
-                address
-              )}&title=${encodeURIComponent("Emergency Location")}`
-            )
-          }
-        >
-          <Text style={styles.mapLinkText}>🗺️ View location on map</Text>
-        </TouchableOpacity>
-      ) : null}
-
       <TouchableOpacity
         style={styles.submitBtn}
         onPress={handleSubmit}
@@ -353,16 +338,6 @@ const styles = StyleSheet.create({
     color: "#FFFFFF",
     fontWeight: "700",
     fontSize: 13,
-  },
-  mapLink: {
-    alignSelf: "flex-start",
-    marginTop: 10,
-    paddingVertical: 6,
-  },
-  mapLinkText: {
-    color: Colors.info,
-    fontSize: 13,
-    fontWeight: "700",
   },
   submitBtn: {
     backgroundColor: Colors.emergency,
