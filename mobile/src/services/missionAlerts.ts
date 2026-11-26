@@ -9,61 +9,80 @@ let configured = false;
 const configureNotifications = async () => {
   if (configured || Platform.OS === "web") return;
 
-  Notifications.setNotificationHandler({
-    handleNotification: async () => ({
-      shouldShowBanner: true,
-      shouldShowList: true,
-      shouldPlaySound: true,
-      shouldSetBadge: true,
-    }),
-  });
-
-  if (Platform.OS === "android") {
-    await Notifications.setNotificationChannelAsync(CHANNEL_ID, {
-      name: "SOS updates",
-      description: "Responder acceptance and emergency status updates",
-      importance: Notifications.AndroidImportance.MAX,
-      vibrationPattern: [0, 250, 250, 250],
+  try {
+    Notifications.setNotificationHandler({
+      handleNotification: async () => ({
+        shouldShowBanner: true,
+        shouldShowList: true,
+        shouldPlaySound: true,
+        shouldSetBadge: true,
+      }),
     });
-  }
 
-  configured = true;
+    if (Platform.OS === "android") {
+      try {
+        await Notifications.setNotificationChannelAsync(CHANNEL_ID, {
+          name: "SOS updates",
+          description: "Responder acceptance and emergency status updates",
+          importance: Notifications.AndroidImportance.MAX,
+          vibrationPattern: [0, 250, 250, 250],
+        });
+      } catch (channelErr) {
+        // In Expo Go or when NotificationsChannelsProvider is unavailable on Android,
+        // ignore the channel error so the app does not crash.
+        console.warn("[Notifications] Android channel setup skipped:", channelErr);
+      }
+    }
+
+    configured = true;
+  } catch (err) {
+    console.warn("[Notifications] Configuration failed:", err);
+  }
 };
 
 const requestNotificationPermission = async () => {
   if (Platform.OS === "web") return false;
-  await configureNotifications();
+  try {
+    await configureNotifications();
 
-  const { status: existingStatus } = await Notifications.getPermissionsAsync();
-  if (existingStatus === "granted") return true;
+    const { status: existingStatus } = await Notifications.getPermissionsAsync();
+    if (existingStatus === "granted") return true;
 
-  const { status } = await Notifications.requestPermissionsAsync();
-  return status === "granted";
+    const { status } = await Notifications.requestPermissionsAsync();
+    return status === "granted";
+  } catch (err) {
+    console.warn("[Notifications] Permission request skipped:", err);
+    return false;
+  }
 };
 
 const showMissionNotification = async (payload: MissionAcceptedPayload) => {
   if (Platform.OS === "web") return;
 
-  const granted = await requestNotificationPermission();
-  if (!granted) return;
+  try {
+    const granted = await requestNotificationPermission();
+    if (!granted) return;
 
-  const responderName = payload.mission?.volunteer?.name || "A volunteer";
-  const sosTitle = payload.emergency?.title || "your SOS";
-  const url =
-    payload.url || (payload.emergency?._id ? `/emergency/${payload.emergency._id}` : "");
+    const responderName = payload.mission?.volunteer?.name || "A volunteer";
+    const sosTitle = payload.emergency?.title || "your SOS";
+    const url =
+      payload.url || (payload.emergency?._id ? `/emergency/${payload.emergency._id}` : "");
 
-  await Notifications.scheduleNotificationAsync({
-    content: {
-      title: "Help is on the way 🚑",
-      body: `${responderName} accepted your SOS: ${sosTitle}.`,
-      data: {
-        event: "mission_accepted",
-        emergencyId: payload.emergency?._id,
-        url,
+    await Notifications.scheduleNotificationAsync({
+      content: {
+        title: "Help is on the way 🚑",
+        body: `${responderName} accepted your SOS: ${sosTitle}.`,
+        data: {
+          event: "mission_accepted",
+          emergencyId: payload.emergency?._id,
+          url,
+        },
       },
-    },
-    trigger: null,
-  });
+      trigger: null,
+    });
+  } catch (notifErr) {
+    console.warn("[Notifications] Local notification display skipped:", notifErr);
+  }
 };
 
 /** Navigate when the citizen taps the local acceptance notification. */
@@ -92,7 +111,11 @@ export const watchCitizenMissionAlerts = (
 ) => {
   if (role !== "citizen" || !userId) return () => {};
 
-  void configureNotifications().then(() => requestNotificationPermission());
+  void configureNotifications()
+    .then(() => requestNotificationPermission())
+    .catch((err) => {
+      console.warn("[Notifications] Initialization skipped:", err);
+    });
 
   const socket = getSocket();
   const onMissionAccepted = (payload: MissionAcceptedPayload) => {
