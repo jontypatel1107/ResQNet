@@ -1,4 +1,4 @@
-import React, { useCallback, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
   View,
   Text,
@@ -8,11 +8,14 @@ import {
   ActivityIndicator,
   Alert,
 } from "react-native";
-import { useFocusEffect } from "expo-router";
+import { useFocusEffect, useRouter } from "expo-router";
+import * as Location from "expo-location";
 import { api } from "../../src/services/api";
 import { getSocket } from "../../src/services/socket";
+import { trackingService } from "../../src/services/trackingService";
 import { AssistanceAssignment, EmergencyRequest } from "../../src/types";
 import { getApiErrorMessage } from "../../src/utils/errors";
+import { toMapCoordinates, isReadableAddress } from "../../src/utils/location";
 import { Colors } from "../../src/constants/colors";
 
 const STATUS_COLORS: Record<string, string> = {
@@ -25,9 +28,32 @@ const STATUS_COLORS: Record<string, string> = {
 };
 
 export default function VolunteerAssignments() {
+  const router = useRouter();
   const [assignments, setAssignments] = useState<AssistanceAssignment[]>([]);
   const [loading, setLoading] = useState(true);
   const [busyId, setBusyId] = useState<string | null>(null);
+
+  // Live GPS Tracking Broadcast state
+  const [broadcastingId, setBroadcastingId] = useState<string | null>(null);
+  const [lastPingTime, setLastPingTime] = useState<string | null>(null);
+  const [pinging, setPinging] = useState<boolean>(false);
+  const watchSubscriptionRef = useRef<Location.LocationSubscription | null>(null);
+
+  const stopBroadcasting = useCallback(() => {
+    if (watchSubscriptionRef.current) {
+      watchSubscriptionRef.current.remove();
+      watchSubscriptionRef.current = null;
+    }
+    setBroadcastingId(null);
+    setLastPingTime(null);
+  }, []);
+
+  // Cleanup watcher when leaving screen
+  useEffect(() => {
+    return () => {
+      stopBroadcasting();
+    };
+  }, [stopBroadcasting]);
 
   const fetchAssignments = useCallback(async () => {
     try {
@@ -58,10 +84,91 @@ export default function VolunteerAssignments() {
     }, [fetchAssignments])
   );
 
+  const toggleBroadcasting = async (emergencyId: string) => {
+    if (broadcastingId === emergencyId) {
+      stopBroadcasting();
+      Alert.alert("GPS Broadcasting Stopped", "Live location updates have been stopped.");
+      return;
+    }
+
+    try {
+      const { status } = await Location.requestForegroundPermissionsAsync();
+      if (status !== "granted") {
+        Alert.alert(
+          "Permission Required",
+          "Foreground location permission is required to stream live GPS to dispatch and trusted contacts."
+        );
+        return;
+      }
+
+      // Stop any previous active watcher
+      stopBroadcasting();
+      setPinging(true);
+      setBroadcastingId(emergencyId);
+
+      // Send immediate first ping
+      try {
+        const cur = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.High });
+        const speedKmH =
+          cur.coords.speed && cur.coords.speed > 0 ? cur.coords.speed * 3.6 : 0;
+        await trackingService.sendLocationPing(emergencyId, {
+          coordinates: [cur.coords.longitude, cur.coords.latitude],
+          heading: cur.coords.heading ?? 0,
+          speed: Math.round(speedKmH),
+        });
+        setLastPingTime(new Date().toLocaleTimeString());
+      } catch (err) {
+        console.warn("[GPS] Initial ping failed:", err);
+      } finally {
+        setPinging(false);
+      }
+
+      // Watch position every 4s or 5m of movement
+      const sub = await Location.watchPositionAsync(
+        {
+          accuracy: Location.Accuracy.High,
+          timeInterval: 4000,
+          distanceInterval: 5,
+        },
+        async (loc) => {
+          try {
+            const speedKmH =
+              loc.coords.speed && loc.coords.speed > 0 ? loc.coords.speed * 3.6 : 0;
+            await trackingService.sendLocationPing(emergencyId, {
+              coordinates: [loc.coords.longitude, loc.coords.latitude],
+              heading: loc.coords.heading ?? 0,
+              speed: Math.round(speedKmH),
+            });
+            setLastPingTime(new Date().toLocaleTimeString());
+          } catch (err) {
+            console.warn("[GPS] Streaming ping failed:", err);
+          }
+        }
+      );
+
+      watchSubscriptionRef.current = sub;
+      Alert.alert(
+        "Live GPS Active",
+        "Your live location breadcrumbs and ETA are now broadcasting to the citizen and public tracking page."
+      );
+    } catch (error: unknown) {
+      stopBroadcasting();
+      Alert.alert("Failed to Start GPS Streaming", getApiErrorMessage(error, "Please try again."));
+    }
+  };
+
   const changeStatus = async (id: string, status: "in_progress" | "completed" | "cancelled") => {
     try {
       setBusyId(id);
       await api.patch(`/assignments/${id}/status`, { status });
+      if (status === "completed" || status === "cancelled") {
+        const targetAssignment = assignments.find((a) => a._id === id);
+        const req = targetAssignment?.requestId;
+        const targetEmergencyId = typeof req === "object" ? req?._id : req;
+        if (targetEmergencyId && broadcastingId === targetEmergencyId) {
+          stopBroadcasting();
+        }
+      }
       await fetchAssignments();
       Alert.alert(
         "Mission Updated",
@@ -96,6 +203,8 @@ export default function VolunteerAssignments() {
     const requestId = typeof item.requestId === "string" ? item.requestId : request?._id || "";
     const title = request?.title || `Mission ID: ${item._id.slice(-6).toUpperCase()}`;
     const busy = busyId === item._id || busyId === requestId;
+    const mapCoords = request ? toMapCoordinates(request.location) : null;
+    const isBroadcasting = broadcastingId === requestId;
 
     return (
       <View style={styles.card}>
@@ -112,6 +221,26 @@ export default function VolunteerAssignments() {
           {item.notes || "Emergency assistance active. Follow safety protocols."}
         </Text>
 
+        {/* Live ETA Banner if available */}
+        {request?.eta && request.eta.durationMinutes !== undefined ? (
+          <View style={styles.etaCard}>
+            <Text style={styles.etaText}>
+              ⏱️ <Text style={styles.etaHighlight}>~{request.eta.durationMinutes} min</Text> (
+              {request.eta.distanceKm} km to emergency site)
+            </Text>
+          </View>
+        ) : null}
+
+        {/* Live GPS Broadcast Status */}
+        {isBroadcasting ? (
+          <View style={styles.broadcastingBanner}>
+            <View style={styles.pulseDot} />
+            <Text style={styles.broadcastingText}>
+              📡 Broadcasting Live GPS ({lastPingTime ? `Ping: ${lastPingTime}` : "Connecting..."})
+            </Text>
+          </View>
+        ) : null}
+
         {item.status === "pending" ? (
           <TouchableOpacity
             style={[styles.btn, styles.acceptBtn]}
@@ -122,43 +251,73 @@ export default function VolunteerAssignments() {
           </TouchableOpacity>
         ) : null}
 
-        {item.status === "accepted" ? (
+        {item.status === "accepted" || item.status === "in_progress" ? (
           <View style={styles.actionStack}>
+            {/* Live Navigation & GPS Broadcast Row */}
             <View style={styles.btnRow}>
+              {mapCoords ? (
+                <TouchableOpacity
+                  style={[styles.btn, styles.mapBtn]}
+                  onPress={() =>
+                    router.push(
+                      `/location-map?lat=${mapCoords.latitude}&lng=${mapCoords.longitude}&address=${encodeURIComponent(
+                        isReadableAddress(request?.address) ? request!.address!.trim() : ""
+                      )}&title=${encodeURIComponent(title)}&emergencyId=${requestId}`
+                    )
+                  }
+                >
+                  <Text style={styles.btnText}>🗺️ Live Map & Trail</Text>
+                </TouchableOpacity>
+              ) : null}
+
               <TouchableOpacity
-                style={[styles.btn, styles.progressBtn]}
-                onPress={() => changeStatus(item._id, "in_progress")}
-                disabled={busy}
+                style={[
+                  styles.btn,
+                  isBroadcasting ? styles.stopBroadcastBtn : styles.startBroadcastBtn,
+                ]}
+                onPress={() => toggleBroadcasting(requestId)}
+                disabled={pinging}
               >
-                <Text style={styles.btnText}>Mark In Progress</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={[styles.btn, styles.completeBtn]}
-                onPress={() => changeStatus(item._id, "completed")}
-                disabled={busy}
-              >
-                <Text style={styles.btnText}>Complete Mission</Text>
+                {pinging ? (
+                  <ActivityIndicator color="#FFFFFF" size="small" />
+                ) : (
+                  <Text style={styles.btnText}>
+                    {isBroadcasting ? "🛑 Stop GPS Stream" : "📡 Stream Live GPS"}
+                  </Text>
+                )}
               </TouchableOpacity>
             </View>
-            <TouchableOpacity
-              style={[styles.btn, styles.cancelBtn]}
-              onPress={() => changeStatus(item._id, "cancelled")}
-              disabled={busy}
-            >
-              <Text style={styles.btnText}>Cancel Mission</Text>
-            </TouchableOpacity>
-          </View>
-        ) : null}
 
-        {item.status === "in_progress" ? (
-          <View style={styles.btnRow}>
-            <TouchableOpacity
-              style={[styles.btn, styles.completeBtn]}
-              onPress={() => changeStatus(item._id, "completed")}
-              disabled={busy}
-            >
-              <Text style={styles.btnText}>Complete Mission</Text>
-            </TouchableOpacity>
+            {/* Status Transition Row */}
+            {item.status === "accepted" ? (
+              <View style={styles.btnRow}>
+                <TouchableOpacity
+                  style={[styles.btn, styles.progressBtn]}
+                  onPress={() => changeStatus(item._id, "in_progress")}
+                  disabled={busy}
+                >
+                  <Text style={styles.btnText}>Mark In Progress</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[styles.btn, styles.completeBtn]}
+                  onPress={() => changeStatus(item._id, "completed")}
+                  disabled={busy}
+                >
+                  <Text style={styles.btnText}>Complete Mission</Text>
+                </TouchableOpacity>
+              </View>
+            ) : (
+              <View style={styles.btnRow}>
+                <TouchableOpacity
+                  style={[styles.btn, styles.completeBtn]}
+                  onPress={() => changeStatus(item._id, "completed")}
+                  disabled={busy}
+                >
+                  <Text style={styles.btnText}>Complete Mission</Text>
+                </TouchableOpacity>
+              </View>
+            )}
+
             <TouchableOpacity
               style={[styles.btn, styles.cancelBtn]}
               onPress={() => changeStatus(item._id, "cancelled")}
@@ -252,6 +411,47 @@ const styles = StyleSheet.create({
     color: Colors.textSecondary,
     marginBottom: 12,
   },
+  etaCard: {
+    backgroundColor: "rgba(49, 130, 206, 0.1)",
+    borderColor: "rgba(49, 130, 206, 0.3)",
+    borderWidth: 1,
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    marginBottom: 10,
+  },
+  etaText: {
+    fontSize: 12,
+    color: Colors.textSecondary,
+    fontWeight: "600",
+  },
+  etaHighlight: {
+    color: Colors.info,
+    fontWeight: "800",
+  },
+  broadcastingBanner: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "rgba(46, 213, 115, 0.12)",
+    borderColor: "#2ED573",
+    borderWidth: 1,
+    borderRadius: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    marginBottom: 10,
+    gap: 6,
+  },
+  pulseDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: "#2ED573",
+  },
+  broadcastingText: {
+    fontSize: 11,
+    fontWeight: "700",
+    color: "#2ED573",
+  },
   actionStack: {
     gap: 8,
   },
@@ -269,6 +469,17 @@ const styles = StyleSheet.create({
   },
   acceptBtn: {
     backgroundColor: Colors.success,
+  },
+  mapBtn: {
+    backgroundColor: "#1B3A57",
+    borderColor: Colors.border,
+    borderWidth: 1,
+  },
+  startBroadcastBtn: {
+    backgroundColor: "#2E7D32",
+  },
+  stopBroadcastBtn: {
+    backgroundColor: "#C62828",
   },
   progressBtn: {
     backgroundColor: Colors.info,
