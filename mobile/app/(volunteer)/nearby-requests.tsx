@@ -109,7 +109,7 @@ export default function NearbyRequests() {
                 router.push(
                   `/location-map?lat=${mapCoords.latitude}&lng=${mapCoords.longitude}&address=${encodeURIComponent(
                     isReadableAddress(item.address) ? item.address!.trim() : ""
-                  )}&title=${encodeURIComponent(item.title)}`
+                  )}&title=${encodeURIComponent(item.title)}&emergencyId=${item._id}`
                 )
               }
             >

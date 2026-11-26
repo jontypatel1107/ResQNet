@@ -188,7 +188,7 @@ export default function EmergencyDetailScreen() {
               router.push(
                 `/location-map?lat=${mapCoords.latitude}&lng=${mapCoords.longitude}&address=${encodeURIComponent(
                   isReadableAddress(emergency.address) ? emergency.address!.trim() : ""
-                )}&title=${encodeURIComponent(emergency.title)}`
+                )}&title=${encodeURIComponent(emergency.title)}&emergencyId=${emergency._id}`
               )
             }
           >

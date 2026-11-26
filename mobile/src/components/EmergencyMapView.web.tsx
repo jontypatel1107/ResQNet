@@ -7,6 +7,19 @@ import { buildGoogleMapsUrl, MapCoordinates } from "../utils/location";
 type EmergencyMapViewProps = MapCoordinates & {
   title?: string;
   address?: string;
+  responderLocation?: {
+    latitude: number;
+    longitude: number;
+    heading?: number;
+    speed?: number;
+  } | null;
+  responderTrail?: {
+    coordinates: [number, number];
+    heading?: number;
+    speed?: number;
+    timestamp?: string;
+  }[];
+  responderName?: string;
 };
 
 export default function EmergencyMapViewWeb({
