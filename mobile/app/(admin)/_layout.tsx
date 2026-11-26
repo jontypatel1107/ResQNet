@@ -33,6 +33,14 @@ export default function AdminLayout() {
         }}
       />
       <Tabs.Screen
+        name="emergencies"
+        options={{
+          title: "Smart Emergency Triage",
+          tabBarLabel: "Triage ⚡",
+          tabBarIcon: () => <Text style={{ fontSize: 20 }}>⚡</Text>,
+        }}
+      />
+      <Tabs.Screen
         name="users"
         options={{
           title: "User Management",

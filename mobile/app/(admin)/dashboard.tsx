@@ -81,6 +81,25 @@ export default function AdminDashboard() {
           <Text style={styles.sectionTitle}>Management Modules</Text>
 
           <TouchableOpacity
+            style={[styles.navCard, { borderColor: Colors.emergencyLight }]}
+            onPress={() => router.push("/(admin)/emergencies")}
+          >
+            <Text style={styles.navIcon}>⚡</Text>
+            <View style={{ flex: 1 }}>
+              <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+                <Text style={styles.navTitle}>Smart Triage & Auto-Dispatch</Text>
+                {Boolean(stats?.activeEmergencies) && (
+                  <View style={{ backgroundColor: Colors.emergency, paddingHorizontal: 6, paddingVertical: 2, borderRadius: 10 }}>
+                    <Text style={{ color: "#FFF", fontSize: 10, fontWeight: "800" }}>{stats?.activeEmergencies} ACTIVE</Text>
+                  </View>
+                )}
+              </View>
+              <Text style={styles.navSubtitle}>Score volunteers, inspect candidate breakdowns & auto-dispatch</Text>
+            </View>
+            <Text style={styles.chevron}>→</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
             style={styles.navCard}
             onPress={() => router.push("/(admin)/users")}
           >
