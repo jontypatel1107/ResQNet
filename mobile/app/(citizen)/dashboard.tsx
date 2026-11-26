@@ -65,11 +65,20 @@ export default function CitizenDashboard() {
 
         <TouchableOpacity
           style={styles.card}
-          onPress={() => router.push("/(citizen)/my-requests")}
+          onPress={() => router.push("/(citizen)/my-requests" as any)}
         >
           <Text style={styles.cardIcon}>📑</Text>
           <Text style={styles.cardTitle}>My Requests</Text>
           <Text style={styles.cardDesc}>Track active dispatches</Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          style={[styles.card, { borderColor: Colors.success, backgroundColor: "#F0FDF4" }]}
+          onPress={() => router.push("/(citizen)/trusted-circle" as any)}
+        >
+          <Text style={styles.cardIcon}>🛡️</Text>
+          <Text style={[styles.cardTitle, { color: Colors.successDark }]}>Trusted Circle</Text>
+          <Text style={styles.cardDesc}>Auto-alert family & live GPS</Text>
         </TouchableOpacity>
       </View>
 

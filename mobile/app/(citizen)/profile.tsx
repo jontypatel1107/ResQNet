@@ -135,6 +135,23 @@ export default function CitizenProfileScreen() {
         ) : null}
       </View>
 
+      {/* Trusted Circle / Emergency Contacts Card */}
+      <View style={styles.card}>
+        <View style={styles.cardHeaderRow}>
+          <Text style={styles.cardTitle}>🛡️ Trusted Circle & Safety</Text>
+        </View>
+        <Text style={styles.circleInfoText}>
+          Link family, friends, or doctors to automatically receive SMS or WhatsApp alerts with live GPS tracking whenever you trigger an SOS.
+        </Text>
+        <TouchableOpacity
+          style={styles.manageCircleBtn}
+          onPress={() => router.push("/(citizen)/trusted-circle")}
+          activeOpacity={0.8}
+        >
+          <Text style={styles.manageCircleBtnText}>Manage Trusted Circle →</Text>
+        </TouchableOpacity>
+      </View>
+
       {/* Password Management Card */}
       <View style={styles.card}>
         <TouchableOpacity
@@ -326,6 +343,24 @@ const styles = StyleSheet.create({
   logoutText: {
     color: Colors.emergencyDark,
     fontSize: 15,
+    fontWeight: "700",
+  },
+  circleInfoText: {
+    fontSize: 13,
+    color: Colors.textSecondary,
+    marginTop: 8,
+    lineHeight: 18,
+  },
+  manageCircleBtn: {
+    backgroundColor: Colors.primary,
+    borderRadius: 10,
+    paddingVertical: 12,
+    alignItems: "center",
+    marginTop: 14,
+  },
+  manageCircleBtnText: {
+    color: "#FFFFFF",
+    fontSize: 13,
     fontWeight: "700",
   },
 });

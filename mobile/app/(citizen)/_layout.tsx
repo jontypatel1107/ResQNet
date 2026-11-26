@@ -36,15 +36,23 @@ export default function CitizenLayout() {
         name="create-emergency"
         options={{
           title: "Request Assistance",
-          tabBarLabel: "Emergency SOS",
+          tabBarLabel: "SOS",
           tabBarIcon: () => <Text style={{ fontSize: 20 }}>🚨</Text>,
+        }}
+      />
+      <Tabs.Screen
+        name="trusted-circle"
+        options={{
+          title: "Trusted Circle",
+          tabBarLabel: "Circle",
+          tabBarIcon: () => <Text style={{ fontSize: 20 }}>🛡️</Text>,
         }}
       />
       <Tabs.Screen
         name="my-requests"
         options={{
           title: "My Requests",
-          tabBarLabel: "My Requests",
+          tabBarLabel: "Requests",
           tabBarIcon: () => <Text style={{ fontSize: 20 }}>📋</Text>,
         }}
       />
