@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from "react";
+import React, { useCallback, useState } from "react";
 import {
   View,
   Text,
@@ -21,7 +21,6 @@ import { getSocket } from "../../src/services/socket";
 import {
   EmergencyPriority,
   EmergencyTriageData,
-  TriageCandidate,
   TriageQueueItem,
 } from "../../src/types";
 import { Colors } from "../../src/constants/colors";

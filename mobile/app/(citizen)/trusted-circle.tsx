@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useCallback, useState } from "react";
 import {
   View,
   Text,
@@ -12,7 +12,9 @@ import {
   Modal,
   Platform,
   KeyboardAvoidingView,
+  RefreshControl,
 } from "react-native";
+import { useFocusEffect } from "expo-router";
 import {
   getTrustedCircle,
   addTrustedContact,
@@ -58,9 +60,8 @@ export default function TrustedCircleScreen() {
   const [newWhatsApp, setNewWhatsApp] = useState(true);
   const [addingContact, setAddingContact] = useState(false);
 
-  const loadData = async () => {
+  const loadData = useCallback(async () => {
     try {
-      setLoading(true);
       const data = await getTrustedCircle();
       if (data) {
         setContacts(data.contacts || []);
@@ -72,11 +73,33 @@ export default function TrustedCircleScreen() {
       setLoading(false);
       setRefreshing(false);
     }
-  };
-
-  useEffect(() => {
-    loadData();
   }, []);
+
+  useFocusEffect(
+    useCallback(() => {
+      let isMounted = true;
+      getTrustedCircle()
+        .then((data) => {
+          if (isMounted && data) {
+            setContacts(data.contacts || []);
+            if (data.settings) setSettings(data.settings);
+          }
+        })
+        .catch((err) => {
+          console.warn("Could not load Trusted Circle:", err.message);
+        })
+        .finally(() => {
+          if (isMounted) {
+            setLoading(false);
+            setRefreshing(false);
+          }
+        });
+
+      return () => {
+        isMounted = false;
+      };
+    }, [])
+  );
 
   const handleToggleContactSOS = async (contact: TrustedContact) => {
     if (!contact._id) return;
@@ -196,7 +219,19 @@ export default function TrustedCircleScreen() {
   };
 
   return (
-    <ScrollView style={styles.container} contentContainerStyle={styles.content}>
+    <ScrollView
+      style={styles.container}
+      contentContainerStyle={styles.content}
+      refreshControl={
+        <RefreshControl
+          refreshing={refreshing}
+          onRefresh={() => {
+            setRefreshing(true);
+            loadData();
+          }}
+        />
+      }
+    >
       {/* Header Banner */}
       <View style={styles.banner}>
         <View style={styles.bannerIcon}>
