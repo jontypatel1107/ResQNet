@@ -4,6 +4,12 @@ import IncidentReport from "../models/IncidentReport.js";
 import VolunteerProfile from "../models/VolunteerProfile.js";
 import AssistanceAssignment from "../models/AssistanceAssignment.js";
 import { sendSuccess, sendError } from "../utils/response.js";
+import {
+  scoreVolunteersForEmergency,
+  autoDispatchEmergency,
+  cancelAutoDispatch,
+  hasPendingAutoDispatch,
+} from "../services/emergencyService.js";
 
 export const getAdminStats = async (req, res, next) => {
   try {
@@ -127,6 +133,106 @@ export const getAllIncidents = async (req, res, next) => {
       .populate("reportedBy", "name phone email")
       .sort({ createdAt: -1 });
     return sendSuccess(res, 200, "All incidents", { incidents });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * GET /api/admin/emergencies/triage-queue
+ * Get active/pending emergencies prioritized for smart triage
+ */
+export const getTriageQueue = async (req, res, next) => {
+  try {
+    const priorityWeight = { critical: 4, high: 3, medium: 2, normal: 1 };
+
+    const emergencies = await EmergencyRequest.find({
+      status: { $in: ["pending", "assigned"] },
+    })
+      .populate("userId", "name phone email")
+      .sort({ createdAt: -1 });
+
+    // Sort by priority weight then creation time
+    emergencies.sort((a, b) => {
+      const pDiff = (priorityWeight[b.priority] || 1) - (priorityWeight[a.priority] || 1);
+      if (pDiff !== 0) return pDiff;
+      return new Date(b.createdAt) - new Date(a.createdAt);
+    });
+
+    const queue = emergencies.map((emg) => ({
+      _id: emg._id,
+      title: emg.title,
+      description: emg.description,
+      category: emg.category,
+      priority: emg.priority,
+      status: emg.status,
+      address: emg.address,
+      coordinates: emg.location?.coordinates || [0, 0],
+      createdAt: emg.createdAt,
+      user: emg.userId,
+      hasPendingTimer: hasPendingAutoDispatch(emg._id),
+    }));
+
+    return sendSuccess(res, 200, "Triage queue retrieved", { queue, count: queue.length });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * GET /api/admin/emergencies/:id/triage
+ * Get ranked volunteer candidate list and score breakdown for an emergency
+ */
+export const getEmergencyTriage = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const triage = await scoreVolunteersForEmergency(id);
+    const hasPendingTimer = hasPendingAutoDispatch(id);
+
+    return sendSuccess(res, 200, "Emergency triage breakdown", {
+      triage,
+      hasPendingTimer,
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * POST /api/admin/emergencies/:id/dispatch
+ * Auto-dispatch the optimal responder or manually assign a specific candidate
+ */
+export const dispatchEmergency = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const { volunteerId, notes } = req.body;
+
+    const result = await autoDispatchEmergency({
+      emergencyId: id,
+      assignedBy: req.user._id,
+      preferredVolunteerId: volunteerId || null,
+      notes,
+    });
+
+    if (!result.success) {
+      return sendError(res, 400, result.reason || "Dispatch failed", result);
+    }
+
+    return sendSuccess(res, 200, "Responder successfully dispatched", result);
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * POST /api/admin/emergencies/:id/cancel-timer
+ * Cancel automated timeout dispatch timer
+ */
+export const cancelTriageTimer = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    cancelAutoDispatch(id);
+    return sendSuccess(res, 200, "Auto-dispatch timer cancelled");
   } catch (error) {
     next(error);
   }

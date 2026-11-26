@@ -6,6 +6,7 @@ import VolunteerProfile from "../models/VolunteerProfile.js";
 import { sendSuccess, sendError } from "../utils/response.js";
 import { getIO } from "../config/socket.js";
 import { sendNotification } from "../services/notificationService.js";
+import { cancelAutoDispatch } from "../services/emergencyService.js";
 
 const ACTIVE_ASSIGNMENT_STATUSES = ["pending", "accepted", "in_progress"];
 const OPEN_EMERGENCY_STATUSES = ["pending", "assigned"];
@@ -268,6 +269,8 @@ const claimEmergency = async ({ emergencyId, userId, assignmentId = null, isAdmi
     }
     throw error;
   }
+
+  cancelAutoDispatch(emergency._id);
 
   return { assignment, emergency: claimedEmergency, acceptedNow: true };
 };

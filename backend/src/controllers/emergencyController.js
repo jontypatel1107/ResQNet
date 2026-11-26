@@ -4,6 +4,10 @@ import VolunteerProfile from "../models/VolunteerProfile.js";
 import { sendSuccess, sendError } from "../utils/response.js";
 import { getIO } from "../config/socket.js";
 import { dispatchTrustedCircleAlert } from "../services/alertTrustedCircleService.js";
+import {
+  scheduleAutoDispatch,
+  cancelAutoDispatch,
+} from "../services/emergencyService.js";
 
 export const createEmergency = async (req, res, next) => {
   try {
@@ -40,6 +44,12 @@ export const createEmergency = async (req, res, next) => {
       });
     } catch (alertErr) {
       console.error("[Emergency] Trusted Circle auto-alert error:", alertErr);
+    }
+
+    // 3. For critical emergencies, schedule Smart Auto-Dispatch timeout (60s default)
+    if (emergency.priority === "critical") {
+      const timeoutMs = Number(process.env.AUTO_DISPATCH_TIMEOUT_MS) || 60000;
+      scheduleAutoDispatch(emergency._id, timeoutMs);
     }
 
     return sendSuccess(res, 201, "Emergency request created successfully", {
@@ -173,6 +183,7 @@ export const cancelEmergency = async (req, res, next) => {
 
     emergency.status = "cancelled";
     await emergency.save();
+    cancelAutoDispatch(emergency._id);
 
     return sendSuccess(res, 200, "Emergency cancelled", { emergency });
   } catch (error) {
