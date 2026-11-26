@@ -174,3 +174,61 @@ export interface PublicEmergencyTracking {
     status: string;
   } | null;
 }
+
+export interface TriageScoreBreakdown {
+  distanceScore: number;
+  skillScore: number;
+  verificationScore: number;
+  workloadScore: number;
+  matchedSkills: string[];
+  reasons: string[];
+}
+
+export interface TriageCandidate {
+  volunteerId: string;
+  name: string;
+  phone: string;
+  email: string;
+  profileImage?: string | null;
+  distanceKm: number | null;
+  serviceRadius: number;
+  isWithinRadius: boolean;
+  verified: boolean;
+  skills: string[];
+  activeWorkload: number;
+  totalScore: number;
+  breakdown: TriageScoreBreakdown;
+}
+
+export interface EmergencyTriageData {
+  emergency: {
+    _id: string;
+    title: string;
+    category: EmergencyCategory;
+    priority: EmergencyPriority;
+    status: EmergencyStatus;
+    address?: string;
+    coordinates: [number, number];
+    createdAt: string;
+  };
+  candidatesCount: number;
+  candidates: TriageCandidate[];
+}
+
+export interface TriageQueueItem {
+  _id: string;
+  title: string;
+  description: string;
+  category: EmergencyCategory;
+  priority: EmergencyPriority;
+  status: EmergencyStatus;
+  address?: string;
+  coordinates: [number, number];
+  createdAt: string;
+  user?: {
+    _id: string;
+    name: string;
+    phone?: string;
+  };
+  hasPendingTimer: boolean;
+}
