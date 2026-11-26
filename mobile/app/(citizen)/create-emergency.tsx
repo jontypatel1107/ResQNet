@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useCallback } from "react";
 import {
   View,
   Text,
@@ -9,7 +9,7 @@ import {
   Alert,
   ActivityIndicator,
 } from "react-native";
-import { useRouter } from "expo-router";
+import { useRouter, useFocusEffect } from "expo-router";
 import * as Location from "expo-location";
 import { api } from "../../src/services/api";
 import { addToSyncQueue } from "../../src/database/sync";
@@ -17,6 +17,8 @@ import { isOnline } from "../../src/services/connectivity";
 import { getApiErrorMessage, isNetworkError } from "../../src/utils/errors";
 import { formatGeocodedAddress } from "../../src/utils/location";
 import { Colors } from "../../src/constants/colors";
+import { getTrustedCircle } from "../../src/services/trustedCircleService";
+import { TrustedContact, TrustedCircleSettings } from "../../src/types";
 
 const CATEGORIES = [
   { id: "medical", label: "Medical Aid", icon: "🚑" },
@@ -40,6 +42,31 @@ export default function CreateEmergency() {
   const [coords, setCoords] = useState<{ latitude: number; longitude: number } | null>(null);
   const [loading, setLoading] = useState(false);
   const [fetchingLocation, setFetchingLocation] = useState(false);
+
+  // Trusted Circle State
+  const [trustedContacts, setTrustedContacts] = useState<TrustedContact[]>([]);
+  const [trustedSettings, setTrustedSettings] = useState<TrustedCircleSettings | null>(null);
+
+  useFocusEffect(
+    useCallback(() => {
+      let isMounted = true;
+      const loadCircle = async () => {
+        try {
+          const res = await getTrustedCircle();
+          if (isMounted && res) {
+            setTrustedContacts(res.contacts || []);
+            setTrustedSettings(res.settings || null);
+          }
+        } catch {
+          // Non-blocking fallback
+        }
+      };
+      loadCircle();
+      return () => {
+        isMounted = false;
+      };
+    }, [])
+  );
 
   const fetchGPS = async () => {
     try {
@@ -104,7 +131,30 @@ export default function CreateEmergency() {
       const res = await api.post("/emergencies", payload);
       if (res.data?.success) {
         const createdId = res.data?.data?.emergency?._id;
-        if (createdId) {
+        const circleResult = res.data?.data?.trustedCircleResult;
+
+        const isCircleNotified =
+          (circleResult?.dispatched || circleResult?.success) &&
+          (circleResult?.contactsNotified || 0) > 0;
+
+        if (isCircleNotified) {
+          Alert.alert(
+            "🚨 SOS Broadcasted & Contacts Alerted!",
+            `Your emergency request has been broadcasted to local volunteers.\n\n🛡️ ${circleResult.contactsNotified} contact(s) in your Trusted Circle have also been alerted via SMS/WhatsApp with live GPS tracking.`,
+            [
+              {
+                text: "View Live Status",
+                onPress: () => {
+                  if (createdId) {
+                    router.replace(`/emergency/${createdId}`);
+                  } else {
+                    router.push("/(citizen)/my-requests");
+                  }
+                },
+              },
+            ]
+          );
+        } else if (createdId) {
           // Move straight to the live status screen so the citizen can see PENDING.
           router.replace(`/emergency/${createdId}`);
         } else {
@@ -215,6 +265,61 @@ export default function CreateEmergency() {
           )}
         </TouchableOpacity>
       </View>
+
+      {/* Trusted Circle Auto-Alert Status Card */}
+      {(() => {
+        const activeContacts = trustedContacts.filter((c) => c.notifyOnSOS !== false);
+        const isAutoAlertOn = trustedSettings ? trustedSettings.autoAlertEnabled : true;
+        const willAlert = isAutoAlertOn && activeContacts.length > 0;
+
+        return (
+          <TouchableOpacity
+            style={[
+              styles.circleCard,
+              willAlert ? styles.circleCardActive : styles.circleCardInactive,
+            ]}
+            onPress={() => router.push("/(citizen)/trusted-circle")}
+            activeOpacity={0.8}
+          >
+            <View style={styles.circleCardHeader}>
+              <View style={styles.circleTitleRow}>
+                <Text style={styles.circleIcon}>{willAlert ? "🛡️" : "⚠️"}</Text>
+                <Text style={styles.circleTitle}>
+                  {willAlert
+                    ? `Trusted Circle: ${activeContacts.length} Contact${activeContacts.length > 1 ? "s" : ""} Alerting`
+                    : activeContacts.length === 0
+                    ? "Trusted Circle: No Contacts Set"
+                    : "Trusted Circle: Auto-Alert Paused"}
+                </Text>
+              </View>
+              <View
+                style={[
+                  styles.circleBadge,
+                  { backgroundColor: willAlert ? Colors.success : "#A0AEC0" },
+                ]}
+              >
+                <Text style={styles.circleBadgeText}>
+                  {willAlert ? "ACTIVE" : "OFF"}
+                </Text>
+              </View>
+            </View>
+
+            <Text style={styles.circleDescription}>
+              {willAlert
+                ? `SMS / WhatsApp notifications with live GPS tracking will be automatically sent to your ${activeContacts.length} contact(s) upon submission.`
+                : activeContacts.length === 0
+                ? "Tap to add emergency contacts (family, doctors, friends) so they are automatically notified during emergencies."
+                : "Auto-alerts to emergency contacts are disabled in your settings. Tap to manage preferences."}
+            </Text>
+
+            <View style={styles.circleLinkRow}>
+              <Text style={styles.circleLinkText}>
+                {activeContacts.length === 0 ? "+ Set Up Emergency Circle" : "Manage Contacts & Settings →"}
+              </Text>
+            </View>
+          </TouchableOpacity>
+        );
+      })()}
 
       <TouchableOpacity
         style={styles.submitBtn}
@@ -362,5 +467,65 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: "800",
     letterSpacing: 1,
+  },
+  circleCard: {
+    marginTop: 20,
+    borderRadius: 14,
+    padding: 14,
+    borderWidth: 1,
+  },
+  circleCardActive: {
+    backgroundColor: "#F0FFF4",
+    borderColor: "#C6F6D5",
+  },
+  circleCardInactive: {
+    backgroundColor: "#F7FAFC",
+    borderColor: Colors.border,
+  },
+  circleCardHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+  },
+  circleTitleRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    flex: 1,
+  },
+  circleIcon: {
+    fontSize: 18,
+    marginRight: 8,
+  },
+  circleTitle: {
+    fontSize: 13,
+    fontWeight: "700",
+    color: Colors.textPrimary,
+    flex: 1,
+  },
+  circleBadge: {
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 6,
+    marginLeft: 8,
+  },
+  circleBadgeText: {
+    color: "#FFFFFF",
+    fontSize: 10,
+    fontWeight: "800",
+  },
+  circleDescription: {
+    fontSize: 12,
+    color: Colors.textSecondary,
+    marginTop: 6,
+    lineHeight: 17,
+  },
+  circleLinkRow: {
+    marginTop: 8,
+    alignItems: "flex-end",
+  },
+  circleLinkText: {
+    fontSize: 12,
+    fontWeight: "700",
+    color: Colors.primary,
   },
 });

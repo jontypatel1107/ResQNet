@@ -7,9 +7,11 @@ import {
   ActivityIndicator,
   TouchableOpacity,
   Linking,
+  Share,
+  Alert,
 } from "react-native";
 import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
-import { api } from "../../src/services/api";
+import { api, getApiBaseUrl } from "../../src/services/api";
 import { getSocket } from "../../src/services/socket";
 import { EmergencyRequest, MissionAcceptedPayload, MissionInfo } from "../../src/types";
 import {
@@ -95,8 +97,53 @@ export default function EmergencyDetailScreen() {
     : "Address not provided";
   const responderVisible = mission !== null && canViewEmergencyMap(emergency.status);
   const responderSkills =
-    mission?.volunteer?.skills?.map((skill) => skill.replace(/_/g, " ")).join(", ") || "";
+    mission?.volunteer?.skills?.map((skill: string) => skill.replace(/_/g, " ")).join(", ") || "";
   const responderLocationShared = hasUsableCoordinates(mission?.volunteer?.location ?? null);
+
+  const generateShareMessage = () => {
+    const trackingUrl = `${getApiBaseUrl()}/emergencies/track/${emergency._id}`;
+    return (
+      `🚨 RESQNET SOS ALERT: I need emergency assistance!\n\n` +
+      `Incident: ${emergency.title}\n` +
+      `Category: ${emergency.category.toUpperCase()}\n` +
+      `Status: ${emergency.status.toUpperCase()}\n` +
+      `Location: ${addressText}\n\n` +
+      `View real-time tracking & responder status in browser:\n${trackingUrl}`
+    );
+  };
+
+  const handleShareNative = async () => {
+    try {
+      const message = generateShareMessage();
+      await Share.share({
+        message,
+        title: "ResQNet SOS Live Tracking",
+      });
+    } catch (err: any) {
+      Alert.alert("Share Error", err?.message || "Could not open share options.");
+    }
+  };
+
+  const handleShareWhatsApp = async () => {
+    const message = generateShareMessage();
+    const url = `whatsapp://send?text=${encodeURIComponent(message)}`;
+    const canOpen = await Linking.canOpenURL(url).catch(() => false);
+    if (canOpen) {
+      Linking.openURL(url);
+    } else {
+      Linking.openURL(`https://api.whatsapp.com/send?text=${encodeURIComponent(message)}`).catch(() => {
+        handleShareNative();
+      });
+    }
+  };
+
+  const handleShareSMS = async () => {
+    const message = generateShareMessage();
+    const url = `sms:?body=${encodeURIComponent(message)}`;
+    Linking.openURL(url).catch(() => {
+      handleShareNative();
+    });
+  };
 
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.content}>
@@ -194,6 +241,46 @@ export default function EmergencyDetailScreen() {
         <Text style={styles.timestamp}>
           Logged: {new Date(emergency.createdAt).toLocaleString()}
         </Text>
+      </View>
+
+      {/* Live Tracking & Trusted Circle Share Card */}
+      <View style={styles.shareCard}>
+        <View style={styles.shareHeaderRow}>
+          <Text style={styles.shareHeaderTitle}>🛡️ Live Tracking & Circle Alert</Text>
+          <View style={styles.livePill}>
+            <View style={styles.liveDot} />
+            <Text style={styles.livePillText}>WEB LINK</Text>
+          </View>
+        </View>
+        <Text style={styles.shareDescription}>
+          Share live emergency status and responder dispatch with loved ones or contacts. They can follow in real-time on any web browser without needing the app.
+        </Text>
+
+        <View style={styles.shareButtonsRow}>
+          <TouchableOpacity
+            style={styles.shareBtnNative}
+            onPress={handleShareNative}
+            activeOpacity={0.8}
+          >
+            <Text style={styles.shareBtnNativeText}>📲 Share Link</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={styles.shareBtnWhatsApp}
+            onPress={handleShareWhatsApp}
+            activeOpacity={0.8}
+          >
+            <Text style={styles.shareBtnWhatsAppText}>💬 WhatsApp</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={styles.shareBtnSMS}
+            onPress={handleShareSMS}
+            activeOpacity={0.8}
+          >
+            <Text style={styles.shareBtnSMSText}>✉️ SMS</Text>
+          </TouchableOpacity>
+        </View>
       </View>
 
       <TouchableOpacity
@@ -401,6 +488,101 @@ const styles = StyleSheet.create({
   backBtnText: {
     color: "#FFFFFF",
     fontSize: 15,
+    fontWeight: "700",
+  },
+  shareCard: {
+    marginTop: 16,
+    backgroundColor: Colors.surface,
+    borderRadius: 16,
+    padding: 18,
+    borderWidth: 1,
+    borderColor: "#E2E8F0",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 6,
+    elevation: 2,
+  },
+  shareHeaderRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+  },
+  shareHeaderTitle: {
+    fontSize: 15,
+    fontWeight: "700",
+    color: Colors.textPrimary,
+  },
+  livePill: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#EBF8FF",
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: "#BEE3F8",
+  },
+  liveDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: Colors.emergency,
+    marginRight: 5,
+  },
+  livePillText: {
+    fontSize: 10,
+    fontWeight: "800",
+    color: Colors.primary,
+  },
+  shareDescription: {
+    fontSize: 12,
+    color: Colors.textSecondary,
+    marginTop: 8,
+    lineHeight: 18,
+  },
+  shareButtonsRow: {
+    flexDirection: "row",
+    gap: 8,
+    marginTop: 14,
+  },
+  shareBtnNative: {
+    flex: 1.2,
+    backgroundColor: Colors.primary,
+    paddingVertical: 11,
+    borderRadius: 10,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  shareBtnNativeText: {
+    color: "#FFFFFF",
+    fontSize: 12,
+    fontWeight: "700",
+  },
+  shareBtnWhatsApp: {
+    flex: 1,
+    backgroundColor: "#25D366",
+    paddingVertical: 11,
+    borderRadius: 10,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  shareBtnWhatsAppText: {
+    color: "#FFFFFF",
+    fontSize: 12,
+    fontWeight: "700",
+  },
+  shareBtnSMS: {
+    flex: 0.8,
+    backgroundColor: "#4A5568",
+    paddingVertical: 11,
+    borderRadius: 10,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  shareBtnSMSText: {
+    color: "#FFFFFF",
+    fontSize: 12,
     fontWeight: "700",
   },
 });
