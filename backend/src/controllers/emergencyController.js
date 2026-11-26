@@ -3,6 +3,7 @@ import AssistanceAssignment from "../models/AssistanceAssignment.js";
 import VolunteerProfile from "../models/VolunteerProfile.js";
 import { sendSuccess, sendError } from "../utils/response.js";
 import { getIO } from "../config/socket.js";
+import { dispatchTrustedCircleAlert } from "../services/alertTrustedCircleService.js";
 
 export const createEmergency = async (req, res, next) => {
   try {
@@ -22,7 +23,7 @@ export const createEmergency = async (req, res, next) => {
       images: images ? images.map((img) => (typeof img === "string" ? { url: img } : img)) : [],
     });
 
-    // Notify volunteers in real-time
+    // 1. Notify volunteers and admins in real-time
     try {
       const io = getIO();
       io.to("role:volunteer").to("role:admin").emit("new_emergency", emergency);
@@ -30,7 +31,21 @@ export const createEmergency = async (req, res, next) => {
       // Socket not active or standalone test
     }
 
-    return sendSuccess(res, 201, "Emergency request created successfully", { emergency });
+    // 2. Auto-Alert Citizen's Trusted Circle (SMS / WhatsApp with live tracking link)
+    let trustedCircleResult = null;
+    try {
+      trustedCircleResult = await dispatchTrustedCircleAlert({
+        user: req.user,
+        emergency,
+      });
+    } catch (alertErr) {
+      console.error("[Emergency] Trusted Circle auto-alert error:", alertErr);
+    }
+
+    return sendSuccess(res, 201, "Emergency request created successfully", {
+      emergency,
+      trustedCircleResult,
+    });
   } catch (error) {
     next(error);
   }
@@ -94,6 +109,52 @@ export const getEmergencyById = async (req, res, next) => {
     }
 
     return sendSuccess(res, 200, "Emergency details", { emergency, mission });
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const getPublicEmergencyTrack = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const emergency = await EmergencyRequest.findById(id).populate("userId", "name phone");
+    if (!emergency) {
+      return sendError(res, 404, "Emergency tracking record not found or expired");
+    }
+
+    const assignment = await AssistanceAssignment.findOne({
+      requestId: emergency._id,
+      status: { $in: ["accepted", "in_progress", "completed"] },
+    }).populate("volunteerId", "name phone");
+
+    const [lng, lat] = emergency.location?.coordinates || [0, 0];
+
+    const trackingData = {
+      id: emergency._id,
+      title: emergency.title,
+      description: emergency.description,
+      category: emergency.category,
+      priority: emergency.priority,
+      status: emergency.status,
+      address: emergency.address,
+      coordinates: { latitude: lat, longitude: lng },
+      googleMapsUrl: `https://maps.google.com/?q=${lat},${lng}`,
+      createdAt: emergency.createdAt,
+      resolvedAt: emergency.resolvedAt,
+      requester: {
+        name: emergency.userId?.name || "Citizen Requester",
+        phone: emergency.userId?.phone || null,
+      },
+      responder: assignment?.volunteerId
+        ? {
+            name: assignment.volunteerId.name,
+            phone: assignment.volunteerId.phone,
+            status: assignment.status,
+          }
+        : null,
+    };
+
+    return sendSuccess(res, 200, "Live emergency tracking data", { tracking: trackingData });
   } catch (error) {
     next(error);
   }
