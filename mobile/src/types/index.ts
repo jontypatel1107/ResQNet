@@ -113,6 +113,24 @@ export interface EmergencyRequest {
   status: EmergencyStatus;
   createdAt: string;
   resolvedAt?: string;
+  responderLocation?: {
+    latitude: number;
+    longitude: number;
+    heading?: number;
+    speed?: number;
+    updatedAt?: string;
+  } | null;
+  responderTrail?: {
+    coordinates: [number, number];
+    heading?: number;
+    speed?: number;
+    timestamp?: string;
+  }[];
+  eta?: {
+    distanceKm?: number;
+    durationMinutes?: number;
+    updatedAt?: string;
+  } | null;
 }
 
 export interface AssistanceAssignment {
@@ -172,6 +190,24 @@ export interface PublicEmergencyTracking {
     name: string;
     phone?: string | null;
     status: string;
+  } | null;
+  responderLocation?: {
+    latitude: number;
+    longitude: number;
+    heading?: number;
+    speed?: number;
+    updatedAt?: string;
+  } | null;
+  responderTrail?: {
+    coordinates: [number, number];
+    heading?: number;
+    speed?: number;
+    timestamp?: string;
+  }[];
+  eta?: {
+    distanceKm?: number;
+    durationMinutes?: number;
+    updatedAt?: string;
   } | null;
 }
 
