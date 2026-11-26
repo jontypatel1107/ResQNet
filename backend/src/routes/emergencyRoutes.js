@@ -5,6 +5,7 @@ import {
   getEmergencyById,
   getPublicEmergencyTrack,
   cancelEmergency,
+  pingEmergencyLocation,
 } from "../controllers/emergencyController.js";
 import { authenticate } from "../middleware/authMiddleware.js";
 import { validate } from "../middleware/validateMiddleware.js";
@@ -21,6 +22,7 @@ router.use(authenticate);
 router.post("/", validate(createEmergencySchema), createEmergency);
 router.get("/my", getMyEmergencies);
 router.get("/:id", getEmergencyById);
+router.post("/:id/location-ping", pingEmergencyLocation);
 router.patch("/:id/cancel", cancelEmergency);
 
 export default router;

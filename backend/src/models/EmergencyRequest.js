@@ -94,6 +94,36 @@ const emergencyRequestSchema = new mongoose.Schema(
       type: Date,
       default: null,
     },
+
+    responderLocation: {
+      type: {
+        type: String,
+        enum: ["Point"],
+        default: "Point",
+      },
+      coordinates: {
+        type: [Number],
+        default: null,
+      },
+      heading: { type: Number, default: 0 },
+      speed: { type: Number, default: 0 }, // km/h
+      updatedAt: { type: Date, default: null },
+    },
+
+    responderTrail: [
+      {
+        coordinates: { type: [Number], required: true },
+        heading: { type: Number, default: 0 },
+        speed: { type: Number, default: 0 },
+        timestamp: { type: Date, default: Date.now },
+      },
+    ],
+
+    eta: {
+      distanceKm: { type: Number, default: null },
+      durationMinutes: { type: Number, default: null },
+      updatedAt: { type: Date, default: null },
+    },
   },
   { timestamps: true }
 );

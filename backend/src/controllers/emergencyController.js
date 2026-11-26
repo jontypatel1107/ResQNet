@@ -7,7 +7,9 @@ import { dispatchTrustedCircleAlert } from "../services/alertTrustedCircleServic
 import {
   scheduleAutoDispatch,
   cancelAutoDispatch,
+  calculateDistanceKm,
 } from "../services/emergencyService.js";
+import { renderPublicTrackingHtml } from "../utils/trackingTemplate.js";
 
 export const createEmergency = async (req, res, next) => {
   try {
@@ -139,6 +141,29 @@ export const getPublicEmergencyTrack = async (req, res, next) => {
 
     const [lng, lat] = emergency.location?.coordinates || [0, 0];
 
+    let respLoc = null;
+    if (
+      emergency.responderLocation?.coordinates &&
+      emergency.responderLocation.coordinates.length === 2 &&
+      (emergency.responderLocation.coordinates[0] !== 0 ||
+        emergency.responderLocation.coordinates[1] !== 0)
+    ) {
+      respLoc = {
+        latitude: emergency.responderLocation.coordinates[1],
+        longitude: emergency.responderLocation.coordinates[0],
+        heading: emergency.responderLocation.heading || 0,
+        speed: emergency.responderLocation.speed || 0,
+        updatedAt: emergency.responderLocation.updatedAt,
+      };
+    }
+
+    const trail = (emergency.responderTrail || []).map((pt) => ({
+      coordinates: pt.coordinates,
+      heading: pt.heading || 0,
+      speed: pt.speed || 0,
+      timestamp: pt.timestamp,
+    }));
+
     const trackingData = {
       id: emergency._id,
       title: emergency.title,
@@ -162,9 +187,150 @@ export const getPublicEmergencyTrack = async (req, res, next) => {
             status: assignment.status,
           }
         : null,
+      responderLocation: respLoc,
+      responderTrail: trail,
+      eta: emergency.eta || null,
     };
 
+    // If accessed via a web browser (e.g. clicked via SMS/WhatsApp on a mobile device)
+    if (req.headers.accept?.includes("text/html") && req.query.format !== "json") {
+      return res.status(200).send(renderPublicTrackingHtml(trackingData));
+    }
+
     return sendSuccess(res, 200, "Live emergency tracking data", { tracking: trackingData });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * POST /api/emergencies/:id/location-ping
+ * Record live GPS location ping from assigned responder, update breadcrumb trail, and emit socket
+ */
+export const pingEmergencyLocation = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const { heading = 0, speed = 0 } = req.body;
+    let { latitude, longitude } = req.body;
+
+    // Accept both { latitude, longitude } and GeoJSON-style { coordinates: [lng, lat] }
+    // (the mobile GPS streamer sends the latter).
+    if (
+      (latitude === undefined || longitude === undefined) &&
+      Array.isArray(req.body.coordinates) &&
+      req.body.coordinates.length === 2
+    ) {
+      [longitude, latitude] = req.body.coordinates;
+    }
+
+    latitude = Number(latitude);
+    longitude = Number(longitude);
+
+    if (
+      !Number.isFinite(latitude) ||
+      !Number.isFinite(longitude) ||
+      Math.abs(latitude) > 90 ||
+      Math.abs(longitude) > 180
+    ) {
+      return sendError(res, 400, "Invalid coordinates: latitude and longitude are required numbers");
+    }
+
+    const emergency = await EmergencyRequest.findById(id);
+    if (!emergency) {
+      return sendError(res, 404, "Emergency request not found");
+    }
+
+    // Verify authorized: either admin or the assigned volunteer
+    const assignment = await AssistanceAssignment.findOne({
+      requestId: emergency._id,
+      ...(req.user.role === "volunteer" ? { volunteerId: req.user._id } : {}),
+      status: { $in: ["accepted", "in_progress", "pending"] },
+    });
+
+    const isAssignedVolunteer =
+      assignment && assignment.volunteerId.toString() === req.user._id.toString();
+    const isAdmin = req.user.role === "admin";
+
+    if (!isAssignedVolunteer && !isAdmin) {
+      return sendError(res, 403, "Only the assigned volunteer or an admin can transmit live location pings");
+    }
+
+    const [eLon, eLat] = emergency.location?.coordinates || [0, 0];
+    const distanceKm = calculateDistanceKm(eLon, eLat, longitude, latitude);
+
+    // Compute live ETA
+    let durationMinutes = 1;
+    if (distanceKm > 0.05) {
+      if (speed > 2) {
+        durationMinutes = Math.max(1, Math.round((distanceKm / speed) * 60));
+      } else {
+        // Average urban emergency transit speed: 30 km/h
+        durationMinutes = Math.max(1, Math.round((distanceKm / 30) * 60));
+      }
+    } else {
+      durationMinutes = 0; // Arrived
+    }
+
+    emergency.responderLocation = {
+      type: "Point",
+      coordinates: [longitude, latitude],
+      heading: Number(heading) || 0,
+      speed: Number(speed) || 0,
+      updatedAt: new Date(),
+    };
+
+    emergency.eta = {
+      distanceKm: Number(distanceKm.toFixed(2)),
+      durationMinutes,
+      updatedAt: new Date(),
+    };
+
+    if (!emergency.responderTrail) {
+      emergency.responderTrail = [];
+    }
+    emergency.responderTrail.push({
+      coordinates: [longitude, latitude],
+      heading: Number(heading) || 0,
+      speed: Number(speed) || 0,
+      timestamp: new Date(),
+    });
+
+    // Cap breadcrumb trail at last 100 points
+    if (emergency.responderTrail.length > 100) {
+      emergency.responderTrail = emergency.responderTrail.slice(-100);
+    }
+
+    await emergency.save();
+
+    // Broadcast real-time location update to sockets
+    const locationPayload = {
+      emergencyId: emergency._id,
+      responderLocation: {
+        latitude,
+        longitude,
+        heading: emergency.responderLocation.heading,
+        speed: emergency.responderLocation.speed,
+        updatedAt: emergency.responderLocation.updatedAt,
+      },
+      eta: emergency.eta,
+      trailPoint: {
+        coordinates: [longitude, latitude],
+        timestamp: new Date(),
+      },
+    };
+
+    try {
+      const io = getIO();
+      io.emit("location_update", locationPayload);
+      io.to(`emergency:${emergency._id}`).emit("location_update", locationPayload);
+      io.to(`user:${emergency.userId}`).emit("location_update", locationPayload);
+    } catch {}
+
+    return sendSuccess(res, 200, "Location ping recorded", {
+      responderLocation: emergency.responderLocation,
+      eta: emergency.eta,
+      trailCount: emergency.responderTrail.length,
+    });
   } catch (error) {
     next(error);
   }
