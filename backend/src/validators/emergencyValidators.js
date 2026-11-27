@@ -17,5 +17,12 @@ export const createEmergencySchema = z.object({
     longitude: z.number().min(-180).max(180),
     address: z.string().optional(),
     images: z.array(z.string()).optional(),
+    deviceTelemetry: z
+      .object({
+        batteryLevel: z.number().nullable().optional(),
+        networkStatus: z.string().nullable().optional(),
+      })
+      .passthrough()
+      .optional(),
   }),
 });

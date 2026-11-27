@@ -13,7 +13,7 @@ import { renderPublicTrackingHtml } from "../utils/trackingTemplate.js";
 
 export const createEmergency = async (req, res, next) => {
   try {
-    const { title, description, category, priority, latitude, longitude, address, images } = req.body;
+    const { title, description, category, priority, latitude, longitude, address, images, deviceTelemetry } = req.body;
 
     const emergency = await EmergencyRequest.create({
       userId: req.user._id,
@@ -27,6 +27,7 @@ export const createEmergency = async (req, res, next) => {
       },
       address: address || "",
       images: images ? images.map((img) => (typeof img === "string" ? { url: img } : img)) : [],
+      deviceTelemetry: deviceTelemetry || {},
     });
 
     // 1. Notify volunteers and admins in real-time

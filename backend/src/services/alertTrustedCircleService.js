@@ -96,6 +96,18 @@ export const dispatchTrustedCircleAlert = async ({ user, emergency }) => {
     const [longitude, latitude] = emergency.location?.coordinates || [0, 0];
     const mapsUrl = `https://maps.google.com/?q=${latitude},${longitude}`;
 
+    const batteryLvl = emergency.deviceTelemetry?.batteryLevel;
+    const netStatus = emergency.deviceTelemetry?.networkStatus;
+
+    const telemetryParts = [];
+    if (batteryLvl !== null && batteryLvl !== undefined) {
+      telemetryParts.push(`🔋 Battery: ${batteryLvl}%`);
+    }
+    if (netStatus) {
+      telemetryParts.push(`📡 Network: ${netStatus.toUpperCase()}`);
+    }
+    const telemetryInfo = telemetryParts.length > 0 ? telemetryParts.join(" | ") : null;
+
     // Build the alert payload
     const alertMessage = [
       `🚨 RESQNET EMERGENCY ALERT 🚨`,
@@ -103,6 +115,7 @@ export const dispatchTrustedCircleAlert = async ({ user, emergency }) => {
       `Situation: ${emergency.title}`,
       `Category: ${emergency.category.toUpperCase()} | Priority: ${emergency.priority.toUpperCase()}`,
       emergency.address ? `Address: ${emergency.address}` : null,
+      telemetryInfo,
       settings.includeLiveLocation
         ? `Live Tracking: ${trackingUrl}\nGPS Map: ${mapsUrl}`
         : null,
@@ -114,20 +127,32 @@ export const dispatchTrustedCircleAlert = async ({ user, emergency }) => {
 
     const deliveryResults = [];
 
-    // Check if real Twilio credentials are configured
+    // Check if real Twilio credentials are configured (ensuring placeholders like "your_..." don't trigger real API failures)
     const twilioSid = process.env.TWILIO_ACCOUNT_SID;
     const twilioToken = process.env.TWILIO_AUTH_TOKEN;
-    const twilioPhone = process.env.TWILIO_PHONE_NUMBER;
-    const twilioWhatsApp = process.env.TWILIO_WHATSAPP_NUMBER;
-    const isTwilioConfigured = Boolean(twilioSid && twilioToken && twilioPhone);
+    const rawTwilioPhone = process.env.TWILIO_PHONE_NUMBER || process.env.TWILIO_WHATSAPP_NUMBER;
+    const twilioPhone = rawTwilioPhone ? rawTwilioPhone.replace("whatsapp:", "").trim() : "";
+    const twilioWhatsApp = process.env.TWILIO_WHATSAPP_NUMBER
+      ? process.env.TWILIO_WHATSAPP_NUMBER.replace("whatsapp:", "").trim()
+      : twilioPhone;
+
+    const isRealCredentials = Boolean(
+      twilioSid &&
+      twilioToken &&
+      !twilioSid.toLowerCase().includes("your") &&
+      !twilioToken.toLowerCase().includes("your")
+    );
+    const isTwilioConfigured = Boolean(isRealCredentials && (twilioPhone || twilioWhatsApp));
 
     for (const contact of activeContacts) {
-      const channels = contact.notifyVia || ["sms", "whatsapp"];
-      const formattedPhone = formatPhoneForTwilio(contact.phone, twilioPhone);
+      // Guarantee both SMS and WhatsApp channels are included for every active contact
+      const rawNotifyVia = contact.notifyVia || ["sms", "whatsapp"];
+      const channels = Array.from(new Set([...rawNotifyVia, "sms", "whatsapp"]));
+      const formattedPhone = formatPhoneForTwilio(contact.phone, twilioPhone || twilioWhatsApp);
 
       for (const channel of channels) {
         if (channel === "sms") {
-          if (isTwilioConfigured) {
+          if (isTwilioConfigured && twilioPhone) {
             try {
               await sendTwilioMessage({
                 sid: twilioSid,
@@ -172,9 +197,7 @@ export const dispatchTrustedCircleAlert = async ({ user, emergency }) => {
         if (channel === "whatsapp") {
           if (isTwilioConfigured && twilioWhatsApp) {
             try {
-              const fromWhatsApp = twilioWhatsApp.startsWith("whatsapp:")
-                ? twilioWhatsApp
-                : `whatsapp:${twilioWhatsApp}`;
+              const fromWhatsApp = `whatsapp:${twilioWhatsApp}`;
               await sendTwilioMessage({
                 sid: twilioSid,
                 token: twilioToken,
@@ -205,7 +228,7 @@ export const dispatchTrustedCircleAlert = async ({ user, emergency }) => {
             console.log(alertMessage);
             console.log(`======================================================\n`);
             deliveryResults.push({
-              contact: contact.name,
+              contact: contact.phone,
               phone: contact.phone,
               channel: "whatsapp",
               status: "simulated_delivered",

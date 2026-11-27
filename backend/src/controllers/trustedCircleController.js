@@ -164,10 +164,13 @@ export const updateTrustedCircleSettings = async (req, res, next) => {
 // POST /api/users/trusted-circle/test-alert
 export const sendTestAlert = async (req, res, next) => {
   try {
+    console.log("[TrustedCircle] sendTestAlert called with body:", req.body);
     const user = await User.findById(req.user._id);
     if (!user) {
       return sendError(res, 404, "User not found");
     }
+
+    const { batteryLevel, networkStatus } = req.body;
 
     const testEmergency = {
       _id: new mongoose.Types.ObjectId(),
@@ -176,6 +179,10 @@ export const sendTestAlert = async (req, res, next) => {
       priority: "normal",
       address: "Current Registered Base",
       location: { coordinates: [72.8777, 19.0760] }, // Default preview coordinates
+      deviceTelemetry: {
+        batteryLevel: batteryLevel !== undefined && batteryLevel !== null ? Number(batteryLevel) : 95,
+        networkStatus: networkStatus || "wifi",
+      },
       createdAt: new Date(),
     };
 
@@ -184,10 +191,13 @@ export const sendTestAlert = async (req, res, next) => {
       emergency: testEmergency,
     });
 
+    console.log("[TrustedCircle] dispatchResult:", dispatchResult);
+
     return sendSuccess(res, 200, "Test alert sent to Trusted Circle contacts", {
       dispatchResult,
     });
   } catch (error) {
+    console.error("[TrustedCircle] sendTestAlert error:", error);
     next(error);
   }
 };

@@ -124,6 +124,11 @@ const emergencyRequestSchema = new mongoose.Schema(
       durationMinutes: { type: Number, default: null },
       updatedAt: { type: Date, default: null },
     },
+
+    deviceTelemetry: {
+      batteryLevel: { type: Number, default: null },
+      networkStatus: { type: String, default: null },
+    },
   },
   { timestamps: true }
 );
