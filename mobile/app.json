@@ -9,7 +9,10 @@
     "userInterfaceStyle": "light",
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.resqnet.app"
+      "bundleIdentifier": "com.resqnet.app",
+      "infoPlist": {
+        "NSContactsUsageDescription": "Allow ResQNet to access your contacts to easily add emergency contacts to your trusted circle."
+      }
     },
     "android": {
       "package": "com.resqnet.app",
@@ -31,7 +34,13 @@
       "expo-secure-store",
       "expo-image-picker",
       "expo-notifications",
-      "expo-splash-screen"
+      "expo-splash-screen",
+      [
+        "expo-contacts",
+        {
+          "contactsPermission": "Allow ResQNet to access your contacts to easily add emergency contacts to your trusted circle."
+        }
+      ]
     ],
     "experiments": {
       "typedRoutes": false
