@@ -36,8 +36,8 @@ export const updateTrustedCircleSettings = async (
   return res.data.data.settings;
 };
 
-export const sendTestAlert = async (): Promise<any> => {
-  const res = await api.post("/users/trusted-circle/test-alert");
+export const sendTestAlert = async (telemetry?: { batteryLevel?: number | null; networkStatus?: string }): Promise<any> => {
+  const res = await api.post("/users/trusted-circle/test-alert", telemetry || {});
   return res.data.data;
 };
 

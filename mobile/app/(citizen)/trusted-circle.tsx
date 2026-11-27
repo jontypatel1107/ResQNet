@@ -13,8 +13,12 @@ import {
   Platform,
   KeyboardAvoidingView,
   RefreshControl,
+  FlatList,
 } from "react-native";
 import { useFocusEffect } from "expo-router";
+import * as Contacts from "expo-contacts/legacy";
+import * as Battery from "expo-battery";
+import NetInfo from "@react-native-community/netinfo";
 import {
   getTrustedCircle,
   addTrustedContact,
@@ -50,7 +54,14 @@ export default function TrustedCircleScreen() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [modalVisible, setModalVisible] = useState(false);
+  const [modalStep, setModalStep] = useState<"choice" | "manual" | "picker" | "configure">("choice");
   const [testingAlert, setTestingAlert] = useState(false);
+
+  // Device Contacts State
+  const [deviceContacts, setDeviceContacts] = useState<any[]>([]);
+  const [filteredDeviceContacts, setFilteredDeviceContacts] = useState<any[]>([]);
+  const [deviceSearchQuery, setDeviceSearchQuery] = useState("");
+  const [loadingDeviceContacts, setLoadingDeviceContacts] = useState(false);
 
   // New Contact Form State
   const [newName, setNewName] = useState("");
@@ -104,7 +115,6 @@ export default function TrustedCircleScreen() {
   const handleToggleContactSOS = async (contact: TrustedContact) => {
     if (!contact._id) return;
     const updatedStatus = !contact.notifyOnSOS;
-    // Optimistic UI update
     setContacts((prev) =>
       prev.map((c) => (c._id === contact._id ? { ...c, notifyOnSOS: updatedStatus } : c))
     );
@@ -140,6 +150,78 @@ export default function TrustedCircleScreen() {
     );
   };
 
+  const handlePickFromDeviceContacts = async () => {
+    try {
+      setLoadingDeviceContacts(true);
+      const { status } = await Contacts.requestPermissionsAsync();
+      if (status !== "granted") {
+        Alert.alert(
+          "Permission Denied",
+          "Permission to access contacts was denied. You can add contacts manually."
+        );
+        setLoadingDeviceContacts(false);
+        return;
+      }
+
+      const { data } = await Contacts.getContactsAsync({
+        fields: [Contacts.Fields.Name, Contacts.Fields.PhoneNumbers],
+      });
+
+      if (data && data.length > 0) {
+        const validContacts = data.filter((c: any) => c.phoneNumbers && c.phoneNumbers.length > 0);
+        setDeviceContacts(validContacts);
+        setFilteredDeviceContacts(validContacts);
+        setModalStep("picker");
+      } else {
+        Alert.alert("No Contacts", "No contacts with phone numbers found on your device.");
+      }
+    } catch {
+      Alert.alert("Error", "Could not load device contacts.");
+    } finally {
+      setLoadingDeviceContacts(false);
+    }
+  };
+
+  const handleSearchDeviceContacts = (query: string) => {
+    setDeviceSearchQuery(query);
+    if (!query.trim()) {
+      setFilteredDeviceContacts(deviceContacts);
+      return;
+    }
+    const q = query.toLowerCase();
+    const filtered = deviceContacts.filter((c: any) => {
+      const nameMatch = c.name?.toLowerCase().includes(q);
+      const phoneMatch = c.phoneNumbers?.some((p: any) => p.number?.includes(q));
+      return nameMatch || phoneMatch;
+    });
+    setFilteredDeviceContacts(filtered);
+  };
+
+  const handleSelectDeviceContact = (contact: any) => {
+    const phoneNumbers = contact.phoneNumbers || [];
+    if (phoneNumbers.length === 1) {
+      const phone = phoneNumbers[0].number || "";
+      setNewName(contact.name || "Trusted Contact");
+      setNewPhone(phone);
+      setModalStep("configure");
+    } else if (phoneNumbers.length > 1) {
+      Alert.alert(
+        "Select Phone Number",
+        `Multiple numbers found for ${contact.name}:`,
+        phoneNumbers
+          .map((p: any) => ({
+            text: `${p.label || "mobile"}: ${p.number}`,
+            onPress: () => {
+              setNewName(contact.name || "Trusted Contact");
+              setNewPhone(p.number || "");
+              setModalStep("configure");
+            },
+          }))
+          .concat([{ text: "Cancel", style: "cancel" }] as any)
+      );
+    }
+  };
+
   const handleAddContactSubmit = async () => {
     if (!newName.trim() || !newPhone.trim()) {
       Alert.alert("Incomplete", "Please provide a name and phone number.");
@@ -173,6 +255,7 @@ export default function TrustedCircleScreen() {
 
       setContacts(updated);
       setModalVisible(false);
+      setModalStep("choice");
       setNewName("");
       setNewPhone("");
       setNewRelation("Family");
@@ -205,7 +288,21 @@ export default function TrustedCircleScreen() {
 
     try {
       setTestingAlert(true);
-      const res = await sendTestAlert();
+      let batteryLevel: number | null = null;
+      try {
+        const bLevel = await Battery.getBatteryLevelAsync();
+        if (bLevel >= 0) {
+          batteryLevel = Math.round(bLevel * 100);
+        }
+      } catch {}
+
+      let networkStatus = "online";
+      try {
+        const netState = await NetInfo.fetch();
+        networkStatus = netState.isConnected ? (netState.type || "online") : "offline";
+      } catch {}
+
+      const res = await sendTestAlert({ batteryLevel, networkStatus });
       const notifiedCount = res.dispatchResult?.contactsNotified || 0;
       Alert.alert(
         "Test Alert Dispatched! 🚀",
@@ -216,6 +313,17 @@ export default function TrustedCircleScreen() {
     } finally {
       setTestingAlert(false);
     }
+  };
+
+  const openAddModal = () => {
+    setModalStep("choice");
+    setNewName("");
+    setNewPhone("");
+    setNewRelation("Family");
+    setNewSms(true);
+    setNewWhatsApp(true);
+    setDeviceSearchQuery("");
+    setModalVisible(true);
   };
 
   return (
@@ -322,7 +430,7 @@ export default function TrustedCircleScreen() {
         <Text style={styles.sectionTitle}>Emergency Contacts ({contacts.length})</Text>
         <TouchableOpacity
           style={styles.addBtn}
-          onPress={() => setModalVisible(true)}
+          onPress={openAddModal}
         >
           <Text style={styles.addBtnText}>+ Add Contact</Text>
         </TouchableOpacity>
@@ -340,7 +448,7 @@ export default function TrustedCircleScreen() {
           </Text>
           <TouchableOpacity
             style={styles.emptyAddBtn}
-            onPress={() => setModalVisible(true)}
+            onPress={openAddModal}
           >
             <Text style={styles.emptyAddBtnText}>Add First Contact</Text>
           </TouchableOpacity>
@@ -415,7 +523,7 @@ export default function TrustedCircleScreen() {
         </TouchableOpacity>
       )}
 
-      {/* Add Contact Modal */}
+      {/* Add Contact Modal with Choice / Picker / Manual / Configure */}
       <Modal
         visible={modalVisible}
         animationType="slide"
@@ -428,96 +536,214 @@ export default function TrustedCircleScreen() {
         >
           <View style={styles.modalCard}>
             <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>Add Trusted Contact</Text>
+              <Text style={styles.modalTitle}>
+                {modalStep === "choice"
+                  ? "Add Trusted Contact"
+                  : modalStep === "picker"
+                  ? "Select from Device Contacts"
+                  : "Configure Contact Details"}
+              </Text>
               <TouchableOpacity onPress={() => setModalVisible(false)}>
                 <Text style={styles.modalCloseText}>✕</Text>
               </TouchableOpacity>
             </View>
 
-            <Text style={styles.modalSub}>
-              This person will receive instant SMS & WhatsApp alerts with your live tracking link
-              during emergencies.
-            </Text>
+            {modalStep === "choice" && (
+              <View style={{ paddingVertical: 10 }}>
+                <Text style={styles.modalSub}>
+                  Choose how you want to add a contact to your emergency trusted circle.
+                </Text>
 
-            <Text style={styles.inputLabel}>Contact Full Name *</Text>
-            <TextInput
-              style={styles.modalInput}
-              placeholder="e.g., Mom / Dr. Sarah"
-              placeholderTextColor="#8898AA"
-              value={newName}
-              onChangeText={setNewName}
-            />
-
-            <Text style={styles.inputLabel}>Mobile Phone Number *</Text>
-            <TextInput
-              style={styles.modalInput}
-              placeholder="e.g., +1 555-0199 or 9876543210"
-              placeholderTextColor="#8898AA"
-              keyboardType="phone-pad"
-              value={newPhone}
-              onChangeText={setNewPhone}
-            />
-
-            <Text style={styles.inputLabel}>Relationship</Text>
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.relationScroll}>
-              {RELATIONSHIPS.map((rel) => (
                 <TouchableOpacity
-                  key={rel}
-                  style={[
-                    styles.relationChip,
-                    newRelation === rel && styles.relationChipActive,
-                  ]}
-                  onPress={() => setNewRelation(rel)}
+                  style={styles.choiceOptionBtn}
+                  onPress={handlePickFromDeviceContacts}
+                  disabled={loadingDeviceContacts}
                 >
-                  <Text
-                    style={[
-                      styles.relationChipText,
-                      newRelation === rel && styles.relationChipTextActive,
-                    ]}
-                  >
-                    {rel}
-                  </Text>
+                  <Text style={{ fontSize: 24, marginRight: 12 }}>📇</Text>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.choiceOptionTitle}>Pick from Device Contacts</Text>
+                    <Text style={styles.choiceOptionSub}>
+                      Select family, friends or doctors directly from your phone address book.
+                    </Text>
+                  </View>
+                  {loadingDeviceContacts && <ActivityIndicator color={Colors.primary} />}
                 </TouchableOpacity>
-              ))}
-            </ScrollView>
 
-            <Text style={styles.inputLabel}>Notification Channels</Text>
-            <View style={styles.channelsSelectRow}>
-              <TouchableOpacity
-                style={[styles.channelSelectBtn, newSms && styles.channelSelectBtnActive]}
-                onPress={() => setNewSms(!newSms)}
-              >
-                <Text style={[styles.channelSelectText, newSms && styles.channelSelectTextActive]}>
-                  📱 SMS Message
-                </Text>
-              </TouchableOpacity>
-
-              <TouchableOpacity
-                style={[styles.channelSelectBtn, newWhatsApp && styles.channelSelectBtnActive]}
-                onPress={() => setNewWhatsApp(!newWhatsApp)}
-              >
-                <Text
-                  style={[
-                    styles.channelSelectText,
-                    newWhatsApp && styles.channelSelectTextActive,
-                  ]}
+                <TouchableOpacity
+                  style={styles.choiceOptionBtn}
+                  onPress={() => setModalStep("manual")}
                 >
-                  💬 WhatsApp Alert
-                </Text>
-              </TouchableOpacity>
-            </View>
+                  <Text style={{ fontSize: 24, marginRight: 12 }}>✏️</Text>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.choiceOptionTitle}>Add Manually</Text>
+                    <Text style={styles.choiceOptionSub}>
+                      Type name and phone number manually.
+                    </Text>
+                  </View>
+                </TouchableOpacity>
+              </View>
+            )}
 
-            <TouchableOpacity
-              style={styles.modalSubmitBtn}
-              onPress={handleAddContactSubmit}
-              disabled={addingContact}
-            >
-              {addingContact ? (
-                <ActivityIndicator color="#FFFFFF" />
-              ) : (
-                <Text style={styles.modalSubmitText}>Save to Trusted Circle</Text>
-              )}
-            </TouchableOpacity>
+            {modalStep === "picker" && (
+              <View style={{ height: 420 }}>
+                <View style={{ flexDirection: "row", alignItems: "center", marginBottom: 12, gap: 8 }}>
+                  <TouchableOpacity
+                    style={styles.backStepBtn}
+                    onPress={() => setModalStep("choice")}
+                  >
+                    <Text style={styles.backStepText}>← Back</Text>
+                  </TouchableOpacity>
+                  <TextInput
+                    style={[styles.modalInput, { flex: 1, marginTop: 0 }]}
+                    placeholder="Search by name or phone..."
+                    placeholderTextColor="#8898AA"
+                    value={deviceSearchQuery}
+                    onChangeText={handleSearchDeviceContacts}
+                  />
+                </View>
+
+                {filteredDeviceContacts.length === 0 ? (
+                  <View style={{ alignItems: "center", justifyContent: "center", paddingVertical: 40 }}>
+                    <Text style={{ color: Colors.textSecondary, fontSize: 14 }}>
+                      No matching contacts found with phone numbers.
+                    </Text>
+                  </View>
+                ) : (
+                  <FlatList
+                    data={filteredDeviceContacts}
+                    keyExtractor={(item) => item.id || item.name}
+                    renderItem={({ item }) => (
+                      <TouchableOpacity
+                        style={styles.deviceContactItem}
+                        onPress={() => handleSelectDeviceContact(item)}
+                      >
+                        <View style={styles.avatarCircleSmall}>
+                          <Text style={styles.avatarLetterSmall}>
+                            {item.name ? item.name[0].toUpperCase() : "C"}
+                          </Text>
+                        </View>
+                        <View style={{ flex: 1, marginLeft: 12 }}>
+                          <Text style={styles.deviceContactName}>{item.name}</Text>
+                          <Text style={styles.deviceContactPhone}>
+                            📞 {item.phoneNumbers?.[0]?.number || "No phone number"}
+                          </Text>
+                        </View>
+                        <Text style={{ color: Colors.primary, fontWeight: "700", fontSize: 13 }}>
+                          Select →
+                        </Text>
+                      </TouchableOpacity>
+                    )}
+                  />
+                )}
+              </View>
+            )}
+
+            {(modalStep === "manual" || modalStep === "configure") && (
+              <ScrollView showsVerticalScrollIndicator={false} style={{ maxHeight: 460 }}>
+                {modalStep === "manual" && (
+                  <TouchableOpacity
+                    style={styles.backStepBtnSmall}
+                    onPress={() => setModalStep("choice")}
+                  >
+                    <Text style={styles.backStepText}>← Back to Options</Text>
+                  </TouchableOpacity>
+                )}
+
+                {modalStep === "configure" && (
+                  <TouchableOpacity
+                    style={styles.backStepBtnSmall}
+                    onPress={() => setModalStep("picker")}
+                  >
+                    <Text style={styles.backStepText}>← Choose Another Contact</Text>
+                  </TouchableOpacity>
+                )}
+
+                <Text style={styles.modalSub}>
+                  This person will receive instant SMS & WhatsApp alerts with your live tracking link
+                  during emergencies.
+                </Text>
+
+                <Text style={styles.inputLabel}>Contact Full Name *</Text>
+                <TextInput
+                  style={styles.modalInput}
+                  placeholder="e.g., Mom / Dr. Sarah"
+                  placeholderTextColor="#8898AA"
+                  value={newName}
+                  onChangeText={setNewName}
+                />
+
+                <Text style={styles.inputLabel}>Mobile Phone Number *</Text>
+                <TextInput
+                  style={styles.modalInput}
+                  placeholder="e.g., +1 555-0199 or 9876543210"
+                  placeholderTextColor="#8898AA"
+                  keyboardType="phone-pad"
+                  value={newPhone}
+                  onChangeText={setNewPhone}
+                />
+
+                <Text style={styles.inputLabel}>Relationship</Text>
+                <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.relationScroll}>
+                  {RELATIONSHIPS.map((rel) => (
+                    <TouchableOpacity
+                      key={rel}
+                      style={[
+                        styles.relationChip,
+                        newRelation === rel && styles.relationChipActive,
+                      ]}
+                      onPress={() => setNewRelation(rel)}
+                    >
+                      <Text
+                        style={[
+                          styles.relationChipText,
+                          newRelation === rel && styles.relationChipTextActive,
+                        ]}
+                      >
+                        {rel}
+                      </Text>
+                    </TouchableOpacity>
+                  ))}
+                </ScrollView>
+
+                <Text style={styles.inputLabel}>Notification Channels</Text>
+                <View style={styles.channelsSelectRow}>
+                  <TouchableOpacity
+                    style={[styles.channelSelectBtn, newSms && styles.channelSelectBtnActive]}
+                    onPress={() => setNewSms(!newSms)}
+                  >
+                    <Text style={[styles.channelSelectText, newSms && styles.channelSelectTextActive]}>
+                      📱 SMS Message
+                    </Text>
+                  </TouchableOpacity>
+
+                  <TouchableOpacity
+                    style={[styles.channelSelectBtn, newWhatsApp && styles.channelSelectBtnActive]}
+                    onPress={() => setNewWhatsApp(!newWhatsApp)}
+                  >
+                    <Text
+                      style={[
+                        styles.channelSelectText,
+                        newWhatsApp && styles.channelSelectTextActive,
+                      ]}
+                    >
+                      💬 WhatsApp Alert
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+
+                <TouchableOpacity
+                  style={styles.modalSubmitBtn}
+                  onPress={handleAddContactSubmit}
+                  disabled={addingContact}
+                >
+                  {addingContact ? (
+                    <ActivityIndicator color="#FFFFFF" />
+                  ) : (
+                    <Text style={styles.modalSubmitText}>Save to Trusted Circle</Text>
+                  )}
+                </TouchableOpacity>
+              </ScrollView>
+            )}
           </View>
         </KeyboardAvoidingView>
       </Modal>
@@ -715,6 +941,19 @@ const styles = StyleSheet.create({
     fontSize: 18,
     fontWeight: "800",
   },
+  avatarCircleSmall: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: Colors.primaryLight,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  avatarLetterSmall: {
+    color: "#FFFFFF",
+    fontSize: 14,
+    fontWeight: "800",
+  },
   contactName: {
     fontSize: 16,
     fontWeight: "700",
@@ -827,6 +1066,58 @@ const styles = StyleSheet.create({
     color: Colors.textSecondary,
     marginBottom: 16,
     lineHeight: 18,
+  },
+  choiceOptionBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#F8FAFC",
+    borderWidth: 1,
+    borderColor: Colors.border,
+    borderRadius: 14,
+    padding: 16,
+    marginBottom: 12,
+  },
+  choiceOptionTitle: {
+    fontSize: 15,
+    fontWeight: "700",
+    color: Colors.textPrimary,
+  },
+  choiceOptionSub: {
+    fontSize: 12,
+    color: Colors.textSecondary,
+    marginTop: 2,
+    lineHeight: 16,
+  },
+  backStepBtn: {
+    paddingVertical: 8,
+    paddingHorizontal: 10,
+    backgroundColor: "#EDF2F7",
+    borderRadius: 8,
+  },
+  backStepBtnSmall: {
+    marginBottom: 12,
+  },
+  backStepText: {
+    fontSize: 13,
+    fontWeight: "700",
+    color: Colors.textSecondary,
+  },
+  deviceContactItem: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingVertical: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: Colors.borderLight,
+  },
+  deviceContactName: {
+    fontSize: 15,
+    fontWeight: "700",
+    color: Colors.textPrimary,
+  },
+  deviceContactPhone: {
+    fontSize: 12,
+    color: Colors.textSecondary,
+    marginTop: 2,
   },
   inputLabel: {
     fontSize: 13,

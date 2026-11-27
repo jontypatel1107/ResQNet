@@ -161,6 +161,14 @@ export default function EmergencyDetailScreen() {
         <Text style={styles.title}>{emergency.title}</Text>
         <Text style={styles.category}>Category: {emergency.category.toUpperCase()}</Text>
 
+        {emergency.deviceTelemetry?.batteryLevel !== null && emergency.deviceTelemetry?.batteryLevel !== undefined ? (
+          <View style={styles.batteryBadge}>
+            <Text style={styles.batteryText}>
+              🔋 Device Battery: {emergency.deviceTelemetry.batteryLevel}% {emergency.deviceTelemetry.networkStatus ? `(${emergency.deviceTelemetry.networkStatus})` : ""}
+            </Text>
+          </View>
+        ) : null}
+
         {emergency.status === "pending" ? (
           <View style={styles.pendingNotice}>
             <Text style={styles.pendingIcon}>📡</Text>
@@ -285,9 +293,15 @@ export default function EmergencyDetailScreen() {
 
       <TouchableOpacity
         style={styles.backBtn}
-        onPress={() => router.back()}
+        onPress={() => {
+          if (router.canGoBack()) {
+            router.back();
+          } else {
+            router.replace("/(citizen)/my-requests");
+          }
+        }}
       >
-        <Text style={styles.backBtnText}>Return to Previous Screen</Text>
+        <Text style={styles.backBtnText}>Return to Requests</Text>
       </TouchableOpacity>
     </ScrollView>
   );
@@ -359,6 +373,21 @@ const styles = StyleSheet.create({
     fontWeight: "600",
     color: Colors.textSecondary,
     marginTop: 6,
+  },
+  batteryBadge: {
+    marginTop: 8,
+    backgroundColor: "#F0FDF4",
+    borderColor: "#BBF7D0",
+    borderWidth: 1,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 8,
+    alignSelf: "flex-start",
+  },
+  batteryText: {
+    color: "#166534",
+    fontSize: 12,
+    fontWeight: "700",
   },
   divider: {
     height: 1,

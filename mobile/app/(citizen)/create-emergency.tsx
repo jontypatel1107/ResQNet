@@ -19,6 +19,8 @@ import { formatGeocodedAddress } from "../../src/utils/location";
 import { Colors } from "../../src/constants/colors";
 import { getTrustedCircle } from "../../src/services/trustedCircleService";
 import { TrustedContact, TrustedCircleSettings } from "../../src/types";
+import * as Battery from "expo-battery";
+import NetInfo from "@react-native-community/netinfo";
 
 const CATEGORIES = [
   { id: "medical", label: "Medical Aid", icon: "🚑" },
@@ -116,6 +118,20 @@ export default function CreateEmergency() {
       return;
     }
 
+    let batteryLevel: number | null = null;
+    try {
+      const bLevel = await Battery.getBatteryLevelAsync();
+      if (bLevel >= 0) {
+        batteryLevel = Math.round(bLevel * 100);
+      }
+    } catch {}
+
+    let networkStatus: string = "online";
+    try {
+      const netState = await NetInfo.fetch();
+      networkStatus = netState.isConnected ? (netState.type || "online") : "offline";
+    } catch {}
+
     const payload = {
       title: title.trim(),
       description: description.trim(),
@@ -124,6 +140,10 @@ export default function CreateEmergency() {
       latitude: coords ? coords.latitude : 0.0,
       longitude: coords ? coords.longitude : 0.0,
       address,
+      deviceTelemetry: {
+        batteryLevel,
+        networkStatus,
+      },
     };
 
     try {

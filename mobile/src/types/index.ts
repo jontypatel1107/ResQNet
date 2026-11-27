@@ -131,6 +131,10 @@ export interface EmergencyRequest {
     durationMinutes?: number;
     updatedAt?: string;
   } | null;
+  deviceTelemetry?: {
+    batteryLevel?: number | null;
+    networkStatus?: string | null;
+  } | null;
 }
 
 export interface AssistanceAssignment {
