@@ -112,6 +112,8 @@ export default function VolunteerAssignments() {
         const speedKmH =
           cur.coords.speed && cur.coords.speed > 0 ? cur.coords.speed * 3.6 : 0;
         await trackingService.sendLocationPing(emergencyId, {
+          latitude: cur.coords.latitude,
+          longitude: cur.coords.longitude,
           coordinates: [cur.coords.longitude, cur.coords.latitude],
           heading: cur.coords.heading ?? 0,
           speed: Math.round(speedKmH),
@@ -135,6 +137,8 @@ export default function VolunteerAssignments() {
             const speedKmH =
               loc.coords.speed && loc.coords.speed > 0 ? loc.coords.speed * 3.6 : 0;
             await trackingService.sendLocationPing(emergencyId, {
+              latitude: loc.coords.latitude,
+              longitude: loc.coords.longitude,
               coordinates: [loc.coords.longitude, loc.coords.latitude],
               heading: loc.coords.heading ?? 0,
               speed: Math.round(speedKmH),

@@ -2,7 +2,9 @@ import { api } from "./api";
 import { PublicEmergencyTracking } from "../types";
 
 export interface LocationPingPayload {
-  coordinates: [number, number]; // [longitude, latitude]
+  coordinates?: [number, number]; // [longitude, latitude]
+  latitude?: number;
+  longitude?: number;
   heading?: number;
   speed?: number; // km/h
 }
