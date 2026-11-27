@@ -1,4 +1,4 @@
-import axios from "axios";
+import axios, { create } from "axios";
 import * as SecureStore from "expo-secure-store";
 import {
   clearServerBaseUrlCache,
@@ -18,7 +18,7 @@ type RetryableRequest = {
 const isNetworkFailure = (error: any): boolean =>
   !error?.response || error?.code === "ERR_NETWORK" || error?.code === "ECONNABORTED";
 
-export const api = axios.create({
+export const api = create({
   baseURL: getApiBaseUrl(),
   timeout: 15000,
   headers: {

@@ -7,7 +7,6 @@
     "icon": "./assets/images/icon.png",
     "scheme": "resqnet",
     "userInterfaceStyle": "light",
-    "newArchEnabled": true,
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.resqnet.app"
@@ -31,7 +30,8 @@
       "expo-sqlite",
       "expo-secure-store",
       "expo-image-picker",
-      "expo-notifications"
+      "expo-notifications",
+      "expo-splash-screen"
     ],
     "experiments": {
       "typedRoutes": false

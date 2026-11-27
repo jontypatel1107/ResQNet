@@ -1,5 +1,5 @@
 import { getDatabase } from "./sqlite";
-import api from "../services/api";
+import { api } from "../services/api";
 
 export const addToSyncQueue = async (action: string, endpoint: string, payload: object) => {
   const db = await getDatabase();
