@@ -269,6 +269,18 @@ export const autoDispatchEmergency = async ({
     selectedCandidate = triage.candidates.find(
       (c) => c.volunteerId === preferredVolunteerId.toString()
     );
+
+    // If preferred volunteer was specified but not in candidates, check if off-duty
+    if (!selectedCandidate) {
+      const preferredProfile = await VolunteerProfile.findOne({ userId: preferredVolunteerId });
+      if (preferredProfile && !preferredProfile.availability) {
+        return {
+          success: false,
+          reason: "Preferred volunteer is currently Off Duty",
+          candidatesCount: triage.candidates.length,
+        };
+      }
+    }
   }
 
   // Fallback to top-ranked candidate
