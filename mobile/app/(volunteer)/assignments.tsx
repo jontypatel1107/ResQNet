@@ -257,7 +257,7 @@ export default function VolunteerAssignments() {
 
         {item.status === "accepted" || item.status === "in_progress" ? (
           <View style={styles.actionStack}>
-            {/* Live Navigation & GPS Broadcast Row */}
+            {/* Live Navigation, Chat & GPS Broadcast Row */}
             <View style={styles.btnRow}>
               {mapCoords ? (
                 <TouchableOpacity
@@ -270,9 +270,21 @@ export default function VolunteerAssignments() {
                     )
                   }
                 >
-                  <Text style={styles.btnText}>🗺️ Live Map & Trail</Text>
+                  <Text style={styles.btnText}>🗺️ Map</Text>
                 </TouchableOpacity>
               ) : null}
+
+              <TouchableOpacity
+                style={[styles.btn, styles.chatBtn]}
+                onPress={() => {
+                  const cName = typeof request?.userId === "object" ? request.userId?.name || "" : "";
+                  router.push(
+                    `/chat/${requestId}?citizenName=${encodeURIComponent(cName)}`
+                  );
+                }}
+              >
+                <Text style={styles.btnText}>💬 Chat</Text>
+              </TouchableOpacity>
 
               <TouchableOpacity
                 style={[
@@ -286,7 +298,7 @@ export default function VolunteerAssignments() {
                   <ActivityIndicator color="#FFFFFF" size="small" />
                 ) : (
                   <Text style={styles.btnText}>
-                    {isBroadcasting ? "🛑 Stop GPS Stream" : "📡 Stream Live GPS"}
+                    {isBroadcasting ? "🛑 Stop GPS" : "📡 Stream GPS"}
                   </Text>
                 )}
               </TouchableOpacity>
@@ -477,6 +489,11 @@ const styles = StyleSheet.create({
   mapBtn: {
     backgroundColor: "#1B3A57",
     borderColor: Colors.border,
+    borderWidth: 1,
+  },
+  chatBtn: {
+    backgroundColor: "#1B3A57",
+    borderColor: Colors.info,
     borderWidth: 1,
   },
   startBroadcastBtn: {

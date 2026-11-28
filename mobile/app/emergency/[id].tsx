@@ -189,20 +189,36 @@ export default function EmergencyDetailScreen() {
 
         <Text style={styles.sectionHeader}>Location</Text>
         <Text style={styles.address}>📍 {addressText}</Text>
-        {showMap && mapCoords ? (
+        <View style={styles.actionBtnRow}>
+          {showMap && mapCoords ? (
+            <TouchableOpacity
+              style={[styles.mapBtn, styles.flexBtn]}
+              onPress={() =>
+                router.push(
+                  `/location-map?lat=${mapCoords.latitude}&lng=${mapCoords.longitude}&address=${encodeURIComponent(
+                    isReadableAddress(emergency.address) ? emergency.address!.trim() : ""
+                  )}&title=${encodeURIComponent(emergency.title)}&emergencyId=${emergency._id}`
+                )
+              }
+            >
+              <Text style={styles.mapBtnText}>🗺️ View on Map</Text>
+            </TouchableOpacity>
+          ) : null}
+
           <TouchableOpacity
-            style={styles.mapBtn}
-            onPress={() =>
+            style={[styles.chatBtn, styles.flexBtn]}
+            onPress={() => {
+              const cName = typeof emergency.userId === "object" ? emergency.userId?.name || "" : "";
+              const vName = mission?.volunteer?.name || "";
               router.push(
-                `/location-map?lat=${mapCoords.latitude}&lng=${mapCoords.longitude}&address=${encodeURIComponent(
-                  isReadableAddress(emergency.address) ? emergency.address!.trim() : ""
-                )}&title=${encodeURIComponent(emergency.title)}&emergencyId=${emergency._id}`
-              )
-            }
+                `/chat/${emergency._id}?volunteerName=${encodeURIComponent(vName)}&citizenName=${encodeURIComponent(cName)}`
+              );
+            }}
           >
-            <Text style={styles.mapBtnText}>🗺️ View on Map</Text>
+            <Text style={styles.chatBtnText}>💬 Mission Chat</Text>
           </TouchableOpacity>
-        ) : !canViewEmergencyMap(emergency.status) && mapCoords ? (
+        </View>
+        {!canViewEmergencyMap(emergency.status) && mapCoords ? (
           <Text style={styles.mapLockedText}>
             🗺️ The map becomes available when a volunteer accepts this SOS.
           </Text>
@@ -420,6 +436,29 @@ const styles = StyleSheet.create({
     borderRadius: 10,
     paddingVertical: 10,
     alignItems: "center",
+  },
+  actionBtnRow: {
+    flexDirection: "row",
+    gap: 10,
+    marginTop: 12,
+  },
+  flexBtn: {
+    flex: 1,
+    marginTop: 0,
+  },
+  chatBtn: {
+    backgroundColor: "rgba(49, 130, 206, 0.15)",
+    borderWidth: 1,
+    borderColor: Colors.info,
+    borderRadius: 10,
+    paddingVertical: 10,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  chatBtnText: {
+    color: Colors.info,
+    fontSize: 13,
+    fontWeight: "700",
   },
   mapBtnText: {
     color: Colors.info,
