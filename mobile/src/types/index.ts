@@ -272,3 +272,32 @@ export interface TriageQueueItem {
   };
   hasPendingTimer: boolean;
 }
+
+export interface ChatMessage {
+  _id: string;
+  emergencyId: string;
+  senderId: string;
+  senderName: string;
+  senderRole: UserRole;
+  message: string;
+  isQuickReply: boolean;
+  createdAt: string;
+}
+
+export interface SafetyStatus {
+  status: "safe" | "in_danger" | "needs_assistance" | "unknown";
+  lastCheckIn: string | null;
+  address?: string;
+  coordinates?: [number, number] | null;
+  note?: string;
+}
+
+export interface PublicSafetyResult {
+  found: boolean;
+  name?: string;
+  status?: string;
+  lastCheckIn?: string;
+  address?: string;
+  coordinates?: [number, number] | null;
+  note?: string;
+}
