@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from "react";
+import React, { useState, useCallback, useEffect } from "react";
 import {
   View,
   Text,
@@ -8,17 +8,21 @@ import {
   ScrollView,
   Alert,
   ActivityIndicator,
+  Modal,
 } from "react-native";
 import { useRouter, useFocusEffect } from "expo-router";
 import * as Location from "expo-location";
 import { api } from "../../src/services/api";
 import { addToSyncQueue } from "../../src/database/sync";
+import { getCachedTrustedContacts } from "../../src/database/sqlite";
 import { isOnline } from "../../src/services/connectivity";
 import { getApiErrorMessage, isNetworkError } from "../../src/utils/errors";
 import { formatGeocodedAddress } from "../../src/utils/location";
 import { Colors } from "../../src/constants/colors";
 import { getTrustedCircle } from "../../src/services/trustedCircleService";
 import { TrustedContact, TrustedCircleSettings } from "../../src/types";
+import { useAuthStore } from "../../src/store/authStore";
+import { formatSosSms, dispatchSmsSos } from "../../src/services/smsFallbackService";
 import * as Battery from "expo-battery";
 import NetInfo from "@react-native-community/netinfo";
 
@@ -49,6 +53,100 @@ export default function CreateEmergency() {
   const [trustedContacts, setTrustedContacts] = useState<TrustedContact[]>([]);
   const [trustedSettings, setTrustedSettings] = useState<TrustedCircleSettings | null>(null);
 
+  const { user } = useAuthStore();
+  const [isOffline, setIsOffline] = useState(false);
+
+  // SMS Fallback State
+  const [showSmsModal, setShowSmsModal] = useState(false);
+  const [smsPreviewText, setSmsPreviewText] = useState("");
+  const [smsRecipients, setSmsRecipients] = useState<string[]>([]);
+  const [dispatchingSms, setDispatchingSms] = useState(false);
+
+  useEffect(() => {
+    const unsubscribe = NetInfo.addEventListener((state) => {
+      const offline = state.isConnected === false || state.isInternetReachable === false;
+      setIsOffline(offline);
+    });
+    NetInfo.fetch().then((state) => {
+      setIsOffline(state.isConnected === false || state.isInternetReachable === false);
+    });
+    return () => unsubscribe();
+  }, []);
+
+  const handleOpenSmsPreview = async () => {
+    let batteryLevel: number | null = null;
+    try {
+      const b = await Battery.getBatteryLevelAsync();
+      if (b >= 0) batteryLevel = Math.round(b * 100);
+    } catch {}
+
+    let contactsToUse = trustedContacts;
+    if (contactsToUse.length === 0) {
+      contactsToUse = await getCachedTrustedContacts();
+      if (contactsToUse.length === 0 && user?.trustedContacts) {
+        contactsToUse = user.trustedContacts;
+      }
+      if (contactsToUse.length > 0) {
+        setTrustedContacts(contactsToUse);
+      }
+    }
+
+    const activeRecipients = contactsToUse
+      .filter((c) => c.notifyOnSOS !== false && c.phone)
+      .map((c) => c.phone);
+
+    const defaultTitle = `${
+      CATEGORIES.find((c) => c.id === category)?.label || "Emergency"
+    } SOS`;
+
+    const preview = formatSosSms({
+      title: title.trim() || defaultTitle,
+      description: description.trim(),
+      category,
+      priority,
+      latitude: coords?.latitude,
+      longitude: coords?.longitude,
+      address: address.trim(),
+      senderName: user?.name,
+      batteryLevel,
+    });
+
+    setSmsPreviewText(preview);
+    setSmsRecipients(activeRecipients);
+    setShowSmsModal(true);
+  };
+
+  const handleDispatchSms = async () => {
+    try {
+      setDispatchingSms(true);
+      const defaultTitle = `${
+        CATEGORIES.find((c) => c.id === category)?.label || "Emergency"
+      } SOS`;
+
+      const result = await dispatchSmsSos({
+        title: title.trim() || defaultTitle,
+        description: description.trim(),
+        category,
+        priority,
+        latitude: coords?.latitude,
+        longitude: coords?.longitude,
+        address: address.trim(),
+        senderName: user?.name,
+        recipients: smsRecipients,
+      });
+
+      if (!result.success && result.error) {
+        Alert.alert("SMS Notice", result.error);
+      } else {
+        setShowSmsModal(false);
+      }
+    } catch {
+      Alert.alert("SMS Error", "Failed to launch device SMS composer.");
+    } finally {
+      setDispatchingSms(false);
+    }
+  };
+
   useFocusEffect(
     useCallback(() => {
       let isMounted = true;
@@ -58,16 +156,21 @@ export default function CreateEmergency() {
           if (isMounted && res) {
             setTrustedContacts(res.contacts || []);
             setTrustedSettings(res.settings || null);
+            return;
           }
         } catch {
           // Non-blocking fallback
+        }
+        if (isMounted && user?.trustedContacts && user.trustedContacts.length > 0) {
+          setTrustedContacts(user.trustedContacts);
+          if (user.trustedCircleSettings) setTrustedSettings(user.trustedCircleSettings);
         }
       };
       loadCircle();
       return () => {
         isMounted = false;
       };
-    }, [])
+    }, [user])
   );
 
   const fetchGPS = async () => {
@@ -191,11 +294,21 @@ export default function CreateEmergency() {
         // Only queue when the request never reached the server.
         await addToSyncQueue("POST", "/emergencies", payload);
         Alert.alert(
-          online ? "Server Unreachable" : "Saved Offline",
+          online ? "Server Unreachable · SOS Queued" : "Offline Mode · SOS Queued",
           online
-            ? "Could not reach the ResQNet server. Your SOS is saved locally and will sync automatically."
-            : "No network detected. Your SOS has been saved locally and will auto-sync when back online.",
-          [{ text: "OK", onPress: () => router.push("/(citizen)/my-requests") }]
+            ? "Could not reach ResQNet servers. Your request is queued locally.\n\nWould you like to dispatch this SOS immediately via SMS to your emergency contacts?"
+            : "No internet connection detected. Your request is queued locally.\n\nWould you like to dispatch this SOS immediately via SMS to your emergency contacts?",
+          [
+            {
+              text: "Keep Local Only",
+              style: "cancel",
+              onPress: () => router.push("/(citizen)/my-requests"),
+            },
+            {
+              text: "📲 Dispatch via SMS",
+              onPress: () => void handleOpenSmsPreview(),
+            },
+          ]
         );
       } else {
         // The server responded with an error. Show the real reason instead of
@@ -212,6 +325,27 @@ export default function CreateEmergency() {
 
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.content}>
+      {isOffline ? (
+        <View style={styles.offlineBanner}>
+          <View style={styles.offlineBannerTop}>
+            <Text style={styles.offlineBannerIcon}>📶</Text>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.offlineBannerTitle}>Offline Mode Detected</Text>
+              <Text style={styles.offlineBannerSub}>
+                No internet detected. ResQNet can dispatch this emergency directly via SMS text message.
+              </Text>
+            </View>
+          </View>
+          <TouchableOpacity
+            style={styles.offlineBannerActionBtn}
+            onPress={handleOpenSmsPreview}
+            activeOpacity={0.8}
+          >
+            <Text style={styles.offlineBannerActionText}>📲 Quick Dispatch via SMS</Text>
+          </TouchableOpacity>
+        </View>
+      ) : null}
+
       <Text style={styles.header}>Report Emergency</Text>
       <Text style={styles.subheader}>
         Provide incident information for immediate responder dispatch
@@ -352,6 +486,75 @@ export default function CreateEmergency() {
           <Text style={styles.submitBtnText}>🚨 BROADCAST EMERGENCY SOS</Text>
         )}
       </TouchableOpacity>
+
+      <TouchableOpacity
+        style={styles.smsFallbackBtn}
+        onPress={handleOpenSmsPreview}
+        activeOpacity={0.8}
+      >
+        <Text style={styles.smsFallbackBtnIcon}>📲</Text>
+        <Text style={styles.smsFallbackBtnText}>Send SOS via SMS (Offline Fallback)</Text>
+      </TouchableOpacity>
+
+      {/* Emergency SMS Preview & Dispatch Modal */}
+      <Modal
+        visible={showSmsModal}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setShowSmsModal(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.smsModalCard}>
+            <View style={styles.smsModalHeader}>
+              <Text style={styles.smsModalTitle}>🚨 Emergency SMS Dispatch</Text>
+              <TouchableOpacity onPress={() => setShowSmsModal(false)}>
+                <Text style={styles.smsModalClose}>✕</Text>
+              </TouchableOpacity>
+            </View>
+
+            <Text style={styles.smsModalSub}>
+              This will launch your device&apos;s SMS composer with a pre-formatted disaster SOS payload:
+            </Text>
+
+            <View style={styles.smsPreviewBox}>
+              <ScrollView style={{ maxHeight: 180 }}>
+                <Text style={styles.smsPreviewText}>{smsPreviewText}</Text>
+              </ScrollView>
+            </View>
+
+            <View style={styles.smsRecipientsRow}>
+              <Text style={styles.smsRecipientsLabel}>
+                👥 Recipients ({smsRecipients.length}):
+              </Text>
+              <Text style={styles.smsRecipientsValue}>
+                {smsRecipients.length > 0
+                  ? smsRecipients.join(", ")
+                  : "Emergency Hotline / Choose in messaging app"}
+              </Text>
+            </View>
+
+            <View style={styles.smsModalBtnRow}>
+              <TouchableOpacity
+                style={styles.smsCancelBtn}
+                onPress={() => setShowSmsModal(false)}
+              >
+                <Text style={styles.smsCancelText}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.smsLaunchBtn}
+                onPress={handleDispatchSms}
+                disabled={dispatchingSms}
+              >
+                {dispatchingSms ? (
+                  <ActivityIndicator color="#FFF" size="small" />
+                ) : (
+                  <Text style={styles.smsLaunchText}>🚀 Open SMS App</Text>
+                )}
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </ScrollView>
   );
 }
@@ -547,5 +750,166 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: "700",
     color: Colors.primary,
+  },
+  offlineBanner: {
+    backgroundColor: "#FFFBEB",
+    borderColor: "#F59E0B",
+    borderWidth: 1,
+    borderRadius: 12,
+    padding: 14,
+    marginBottom: 16,
+  },
+  offlineBannerTop: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 10,
+  },
+  offlineBannerIcon: {
+    fontSize: 22,
+  },
+  offlineBannerTitle: {
+    fontSize: 14,
+    fontWeight: "800",
+    color: "#B45309",
+  },
+  offlineBannerSub: {
+    fontSize: 12,
+    color: "#92400E",
+    marginTop: 2,
+    lineHeight: 16,
+  },
+  offlineBannerActionBtn: {
+    marginTop: 10,
+    backgroundColor: "#D97706",
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    borderRadius: 8,
+    alignItems: "center",
+  },
+  offlineBannerActionText: {
+    color: "#FFFFFF",
+    fontSize: 12,
+    fontWeight: "800",
+  },
+  smsFallbackBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#F1F5F9",
+    borderColor: "#94A3B8",
+    borderWidth: 1,
+    borderRadius: 12,
+    paddingVertical: 14,
+    marginTop: 12,
+    gap: 8,
+  },
+  smsFallbackBtnIcon: {
+    fontSize: 18,
+  },
+  smsFallbackBtnText: {
+    fontSize: 14,
+    fontWeight: "700",
+    color: "#334155",
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.6)",
+    justifyContent: "center",
+    alignItems: "center",
+    padding: 20,
+  },
+  smsModalCard: {
+    width: "100%",
+    backgroundColor: "#FFFFFF",
+    borderRadius: 16,
+    padding: 20,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.15,
+    shadowRadius: 10,
+    elevation: 8,
+  },
+  smsModalHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: 8,
+  },
+  smsModalTitle: {
+    fontSize: 16,
+    fontWeight: "800",
+    color: Colors.textPrimary,
+  },
+  smsModalClose: {
+    fontSize: 18,
+    color: Colors.textMuted,
+    padding: 4,
+  },
+  smsModalSub: {
+    fontSize: 12,
+    color: Colors.textSecondary,
+    marginBottom: 12,
+    lineHeight: 16,
+  },
+  smsPreviewBox: {
+    backgroundColor: "#0F172A",
+    borderRadius: 8,
+    padding: 12,
+    marginBottom: 12,
+  },
+  smsPreviewText: {
+    fontFamily: "monospace",
+    fontSize: 12,
+    color: "#38BDF8",
+    lineHeight: 18,
+  },
+  smsRecipientsRow: {
+    backgroundColor: "#F8FAFC",
+    borderRadius: 8,
+    padding: 10,
+    marginBottom: 16,
+    borderWidth: 1,
+    borderColor: "#E2E8F0",
+  },
+  smsRecipientsLabel: {
+    fontSize: 11,
+    fontWeight: "700",
+    color: Colors.textSecondary,
+    marginBottom: 2,
+  },
+  smsRecipientsValue: {
+    fontSize: 12,
+    fontWeight: "600",
+    color: Colors.textPrimary,
+  },
+  smsModalBtnRow: {
+    flexDirection: "row",
+    gap: 10,
+  },
+  smsCancelBtn: {
+    flex: 1,
+    paddingVertical: 12,
+    borderRadius: 10,
+    backgroundColor: "#E2E8F0",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  smsCancelText: {
+    color: Colors.textPrimary,
+    fontWeight: "700",
+    fontSize: 13,
+  },
+  smsLaunchBtn: {
+    flex: 2,
+    paddingVertical: 12,
+    borderRadius: 10,
+    backgroundColor: "#DC2626",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  smsLaunchText: {
+    color: "#FFFFFF",
+    fontWeight: "800",
+    fontSize: 13,
   },
 });
