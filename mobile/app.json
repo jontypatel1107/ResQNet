@@ -11,7 +11,8 @@
       "supportsTablet": true,
       "bundleIdentifier": "com.resqnet.app",
       "infoPlist": {
-        "NSContactsUsageDescription": "Allow ResQNet to access your contacts to easily add emergency contacts to your trusted circle."
+        "NSContactsUsageDescription": "Allow ResQNet to access your contacts to easily add emergency contacts to your trusted circle.",
+        "LSApplicationQueriesSchemes": ["sms", "tel"]
       }
     },
     "android": {
@@ -22,6 +23,15 @@
         "backgroundImage": "./assets/images/android-icon-background.png",
         "monochromeImage": "./assets/images/android-icon-monochrome.png"
       },
+      "intentFilters": [
+        {
+          "action": "VIEW",
+          "data": [
+            { "scheme": "sms" },
+            { "scheme": "tel" }
+          ]
+        }
+      ],
       "predictiveBackGestureEnabled": false
     },
     "web": {
