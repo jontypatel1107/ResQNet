@@ -7,6 +7,7 @@ import {
   TouchableOpacity,
   ActivityIndicator,
   Alert,
+  Switch,
 } from "react-native";
 import { useFocusEffect, useRouter } from "expo-router";
 import * as Location from "expo-location";
@@ -17,6 +18,7 @@ import { AssistanceAssignment, EmergencyRequest } from "../../src/types";
 import { getApiErrorMessage } from "../../src/utils/errors";
 import { toMapCoordinates, isReadableAddress } from "../../src/utils/location";
 import { Colors } from "../../src/constants/colors";
+import { useAuthStore } from "../../src/store/authStore";
 
 const STATUS_COLORS: Record<string, string> = {
   pending: Colors.warning,
@@ -29,9 +31,15 @@ const STATUS_COLORS: Record<string, string> = {
 
 export default function VolunteerAssignments() {
   const router = useRouter();
+  const { user, setDutyStatus } = useAuthStore();
   const [assignments, setAssignments] = useState<AssistanceAssignment[]>([]);
   const [loading, setLoading] = useState(true);
   const [busyId, setBusyId] = useState<string | null>(null);
+
+  // Volunteer Duty Status
+  const [available, setAvailable] = useState<boolean>(
+    user?.volunteerProfile?.availability ?? true
+  );
 
   // Live GPS Tracking Broadcast state
   const [broadcastingId, setBroadcastingId] = useState<string | null>(null);
@@ -77,12 +85,47 @@ export default function VolunteerAssignments() {
       socket.on("assignment_updated", refresh);
       socket.on("emergency_updated", refresh);
 
+      // Sync volunteer duty status
+      api
+        .get("/volunteers/profile")
+        .then((res) => {
+          if (res.data?.success && res.data.data?.profile) {
+            setAvailable(res.data.data.profile.availability ?? false);
+          }
+        })
+        .catch(() => {
+          if (user?.volunteerProfile) {
+            setAvailable(user.volunteerProfile.availability ?? false);
+          }
+        });
+
       return () => {
         socket.off("assignment_updated", refresh);
         socket.off("emergency_updated", refresh);
       };
-    }, [fetchAssignments])
+    }, [fetchAssignments, user])
   );
+
+  const handleToggleDuty = async (val: boolean) => {
+    const prev = available;
+    setAvailable(val);
+    try {
+      const res = await setDutyStatus(val);
+      if (!res.success) {
+        setAvailable(prev);
+        Alert.alert(
+          "Duty Status Update Failed",
+          res.message || "Could not update your duty status on the server. Please check your connection."
+        );
+      }
+    } catch {
+      setAvailable(prev);
+      Alert.alert(
+        "Duty Status Error",
+        "An unexpected error occurred while updating your duty status."
+      );
+    }
+  };
 
   const toggleBroadcasting = async (emergencyId: string) => {
     if (broadcastingId === emergencyId) {
@@ -353,6 +396,32 @@ export default function VolunteerAssignments() {
 
   return (
     <View style={styles.container}>
+      {/* Duty Status Bar */}
+      <View style={[styles.dutyBar, !available && styles.dutyBarOff]}>
+        <View style={styles.dutyBarLeft}>
+          <View style={[styles.dutyPill, available ? styles.dutyPillOn : styles.dutyPillOff]}>
+            <Text style={styles.dutyPillText}>{available ? "🟢 ON DUTY" : "⚪ OFF DUTY"}</Text>
+          </View>
+          <Text style={styles.dutyTitle}>
+            {available ? "Receiving Dispatches" : "Auto-Dispatch Paused"}
+          </Text>
+        </View>
+        <Switch
+          value={available}
+          onValueChange={handleToggleDuty}
+          trackColor={{ false: "#64748B", true: "#86EFAC" }}
+          thumbColor={available ? Colors.success : "#E2E8F0"}
+        />
+      </View>
+
+      {!available ? (
+        <View style={styles.dutyNoticeStrip}>
+          <Text style={styles.dutyNoticeText}>
+            ⏸️ Off Duty: You will not receive new automated dispatch alerts. Active missions can still be executed.
+          </Text>
+        </View>
+      ) : null}
+
       {loading ? (
         <View style={styles.center}>
           <ActivityIndicator size="large" color={Colors.primary} />
@@ -535,5 +604,60 @@ const styles = StyleSheet.create({
     color: Colors.textSecondary,
     textAlign: "center",
     marginTop: 4,
+  },
+  dutyBar: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    backgroundColor: "#0F172A",
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: "#1E293B",
+  },
+  dutyBarOff: {
+    backgroundColor: "#1E293B",
+  },
+  dutyBarLeft: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+  },
+  dutyPill: {
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 20,
+  },
+  dutyPillOn: {
+    backgroundColor: "#14532D",
+    borderColor: "#22C55E",
+    borderWidth: 1,
+  },
+  dutyPillOff: {
+    backgroundColor: "#475569",
+    borderColor: "#64748B",
+    borderWidth: 1,
+  },
+  dutyPillText: {
+    color: "#FFFFFF",
+    fontSize: 11,
+    fontWeight: "800",
+  },
+  dutyTitle: {
+    color: "#F1F5F9",
+    fontSize: 13,
+    fontWeight: "600",
+  },
+  dutyNoticeStrip: {
+    backgroundColor: "#FEF3C7",
+    borderBottomColor: "#FDE68A",
+    borderBottomWidth: 1,
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+  },
+  dutyNoticeText: {
+    color: "#92400E",
+    fontSize: 11,
+    lineHeight: 15,
   },
 });

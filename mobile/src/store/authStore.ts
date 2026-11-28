@@ -17,6 +17,7 @@ interface AuthState {
   logout: () => Promise<void>;
   updateProfile: (data: { name?: string; phone?: string }) => Promise<{ success: boolean; message?: string }>;
   updateVolunteerProfile: (data: Partial<VolunteerProfile>) => Promise<{ success: boolean; message?: string }>;
+  setDutyStatus: (onDuty: boolean) => Promise<{ success: boolean; message?: string }>;
   initializeAuth: () => Promise<void>;
   clearError: () => void;
 }
@@ -166,6 +167,30 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         return { success: true };
       }
       return { success: false, message: "Volunteer update failed" };
+    } catch (err: any) {
+      return { success: false, message: parseErrorMessage(err, "Network error") };
+    }
+  },
+
+  setDutyStatus: async (onDuty: boolean) => {
+    try {
+      const res = await api.patch("/volunteers/duty-status", { onDuty, availability: onDuty });
+      if (res.data?.success) {
+        const currentUser = get().user;
+        if (currentUser) {
+          const updatedUser: User = {
+            ...currentUser,
+            volunteerProfile: {
+              ...(currentUser.volunteerProfile || { skills: [], availability: true, serviceRadius: 10 }),
+              availability: onDuty,
+            },
+          };
+          set({ user: updatedUser });
+          await SecureStore.setItemAsync("resqnet_user", JSON.stringify(updatedUser));
+        }
+        return { success: true };
+      }
+      return { success: false, message: "Duty status update failed" };
     } catch (err: any) {
       return { success: false, message: parseErrorMessage(err, "Network error") };
     }
