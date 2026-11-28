@@ -2,13 +2,21 @@ import * as SQLite from "expo-sqlite";
 import { TrustedContact } from "../types";
 
 let dbInstance: SQLite.SQLiteDatabase | null = null;
+let dbInitPromise: Promise<SQLite.SQLiteDatabase> | null = null;
 
 export const getDatabase = async (): Promise<SQLite.SQLiteDatabase> => {
-  if (!dbInstance) {
-    dbInstance = await SQLite.openDatabaseAsync("resqnet_offline.db");
-    await initDatabase(dbInstance);
+  if (dbInstance) {
+    return dbInstance;
   }
-  return dbInstance;
+  if (!dbInitPromise) {
+    dbInitPromise = (async () => {
+      const db = await SQLite.openDatabaseAsync("resqnet_offline.db");
+      await initDatabase(db);
+      dbInstance = db;
+      return db;
+    })();
+  }
+  return dbInitPromise;
 };
 
 export const initDatabase = async (db: SQLite.SQLiteDatabase) => {
@@ -53,22 +61,20 @@ export const saveCachedTrustedContacts = async (
 ): Promise<void> => {
   try {
     const db = await getDatabase();
-    await db.withTransactionAsync(async () => {
-      await db.execAsync("DELETE FROM cached_trusted_contacts;");
-      for (const c of contacts) {
-        await db.runAsync(
-          `INSERT OR REPLACE INTO cached_trusted_contacts (id, name, phone, relationship, notify_on_sos)
-           VALUES (?, ?, ?, ?, ?);`,
-          [
-            c._id || c.phone,
-            c.name,
-            c.phone,
-            c.relationship || "other",
-            c.notifyOnSOS !== false ? 1 : 0,
-          ]
-        );
-      }
-    });
+    await db.runAsync("DELETE FROM cached_trusted_contacts;");
+    for (const c of contacts) {
+      await db.runAsync(
+        `INSERT OR REPLACE INTO cached_trusted_contacts (id, name, phone, relationship, notify_on_sos)
+         VALUES (?, ?, ?, ?, ?);`,
+        [
+          c._id || c.phone,
+          c.name || "Emergency Contact",
+          c.phone,
+          c.relationship || "other",
+          c.notifyOnSOS !== false ? 1 : 0,
+        ]
+      );
+    }
   } catch (err) {
     console.warn("[SQLite] Failed to cache trusted contacts:", err);
   }
