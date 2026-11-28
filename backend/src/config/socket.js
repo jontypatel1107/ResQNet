@@ -26,6 +26,21 @@ export const initSocket = (httpServer) => {
       }
     });
 
+    // Join/leave emergency mission chat room
+    socket.on("join_emergency", ({ emergencyId }) => {
+      if (emergencyId) {
+        socket.join(`emergency:${emergencyId}`);
+        console.log(`[Socket.IO] Socket ${socket.id} joined emergency room: emergency:${emergencyId}`);
+      }
+    });
+
+    socket.on("leave_emergency", ({ emergencyId }) => {
+      if (emergencyId) {
+        socket.leave(`emergency:${emergencyId}`);
+        console.log(`[Socket.IO] Socket ${socket.id} left emergency room: emergency:${emergencyId}`);
+      }
+    });
+
     socket.on("disconnect", () => {
       console.log(`[Socket.IO] Client disconnected: ${socket.id}`);
     });

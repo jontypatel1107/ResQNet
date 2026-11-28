@@ -338,7 +338,10 @@ export const getMyAssignments = async (req, res, next) => {
     const assignments = await AssistanceAssignment.find({
       volunteerId: req.user._id,
     })
-      .populate("requestId")
+      .populate({
+        path: "requestId",
+        populate: { path: "userId", select: "name phone" },
+      })
       .sort({ createdAt: -1 });
 
     return sendSuccess(res, 200, "My assignments", { assignments });
