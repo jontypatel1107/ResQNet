@@ -12,6 +12,7 @@ import emergencyRoutes from "./routes/emergencyRoutes.js";
 import volunteerRoutes from "./routes/volunteerRoutes.js";
 import assignmentRoutes from "./routes/assignmentRoutes.js";
 import adminRoutes from "./routes/adminRoutes.js";
+import hazardRoutes from "./routes/hazardRoutes.js";
 
 // Middleware
 import { notFoundHandler, errorHandler } from "./middleware/errorMiddleware.js";
@@ -75,6 +76,7 @@ app.use("/api/emergencies", emergencyRoutes);
 app.use("/api/volunteers", volunteerRoutes);
 app.use("/api/assignments", assignmentRoutes);
 app.use("/api/admin", adminRoutes);
+app.use("/api/hazards", hazardRoutes);
 
 // Error Handling
 app.use(notFoundHandler);
