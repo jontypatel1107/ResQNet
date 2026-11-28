@@ -285,3 +285,106 @@ export const dispatchTrustedCircleAlert = async ({ user, emergency }) => {
     return { success: false, error: error.message };
   }
 };
+
+/**
+ * Dispatch disaster safety check-in alert ("I Am Safe") to the user's Trusted Circle via SMS and WhatsApp.
+ */
+export const dispatchSafetyCheckInAlert = async ({ user, status, address, coordinates, note }) => {
+  try {
+    const activeContacts = (user.trustedContacts || []).filter(
+      (c) => c.notifyOnSOS !== false && c.phone
+    );
+
+    if (activeContacts.length === 0) {
+      return { success: false, reason: "No active trusted contacts configured" };
+    }
+
+    const timeStr = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+    const locationStr =
+      address ||
+      (coordinates && Array.isArray(coordinates) && coordinates.length === 2
+        ? `GPS: ${coordinates[1].toFixed(4)}, ${coordinates[0].toFixed(4)}`
+        : "Location not provided");
+
+    const statusEmoji = status === "safe" ? "🟢" : status === "needs_assistance" ? "🟡" : "🔴";
+    const statusText =
+      status === "safe" ? "SAFE" : status === "needs_assistance" ? "NEEDS ASSISTANCE" : "IN DANGER";
+
+    const alertMessage = [
+      `${statusEmoji} RESQNET DISASTER SAFETY CHECK-IN ${statusEmoji}`,
+      `${user.name} has checked in with status: ${statusText}`,
+      `Time: ${timeStr}`,
+      `Location: ${locationStr}`,
+      note ? `Note: "${note}"` : null,
+      `ResQNet Community Safety Network`,
+    ]
+      .filter(Boolean)
+      .join("\n");
+
+    const sid = process.env.TWILIO_ACCOUNT_SID;
+    const token = process.env.TWILIO_AUTH_TOKEN;
+    const fromSms = process.env.TWILIO_PHONE_NUMBER;
+    const rawWa = (process.env.TWILIO_WHATSAPP_NUMBER || "+14155238886").trim();
+    const fromWa = rawWa.startsWith("whatsapp:") ? rawWa : `whatsapp:${rawWa}`;
+
+    let smsSuccessCount = 0;
+    let waSuccessCount = 0;
+
+    for (const contact of activeContacts) {
+      const e164 = formatPhoneForTwilio(contact.phone, fromSms || "");
+      if (!e164) continue;
+
+      const rawChannels =
+        Array.isArray(contact.notifyVia) && contact.notifyVia.length > 0
+          ? contact.notifyVia
+          : ["sms", "whatsapp"];
+      const channels = Array.from(new Set([...rawChannels, "whatsapp"]));
+
+      // SMS
+      if (channels.includes("sms") && sid && token && fromSms) {
+        try {
+          await sendTwilioMessage({ sid, token, from: fromSms, to: e164, body: alertMessage });
+          smsSuccessCount++;
+        } catch (err) {
+          console.warn(`[SafetyCheckIn] SMS to ${e164} failed:`, err.message);
+        }
+      }
+
+      // WhatsApp
+      if (channels.includes("whatsapp") && sid && token && fromWa) {
+        try {
+          const toWa = e164.startsWith("whatsapp:") ? e164 : `whatsapp:${e164}`;
+          await sendTwilioMessage({
+            sid,
+            token,
+            from: fromWa,
+            to: toWa,
+            body: alertMessage,
+          });
+          waSuccessCount++;
+          console.log(`[SafetyCheckIn] ✓ WhatsApp delivered to ${toWa}`);
+        } catch (err) {
+          console.warn(`[SafetyCheckIn] WhatsApp to ${e164} failed:`, err.message);
+        }
+      }
+    }
+
+    try {
+      await Notification.create({
+        userId: user._id,
+        title: `Safety Check-In: ${statusText}`,
+        message: `Your check-in as ${statusText} was logged and sent to ${smsSuccessCount + waSuccessCount} contact channels.`,
+        type: "system",
+      });
+    } catch {}
+
+    return {
+      success: true,
+      contactsNotified: smsSuccessCount + waSuccessCount,
+      contactsCount: activeContacts.length,
+    };
+  } catch (error) {
+    console.error("[SafetyCheckIn] Dispatch error:", error);
+    return { success: false, error: error.message };
+  }
+};

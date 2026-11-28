@@ -108,6 +108,31 @@ const userSchema = new mongoose.Schema(
       type: trustedCircleSettingsSubSchema,
       default: () => ({}),
     },
+
+    safetyStatus: {
+      status: {
+        type: String,
+        enum: ["safe", "in_danger", "needs_assistance", "unknown"],
+        default: "unknown",
+      },
+      lastCheckIn: {
+        type: Date,
+        default: null,
+      },
+      address: {
+        type: String,
+        default: "",
+      },
+      coordinates: {
+        type: [Number], // [longitude, latitude]
+        default: null,
+      },
+      note: {
+        type: String,
+        default: "",
+        maxlength: 300,
+      },
+    },
   },
   { timestamps: true }
 );

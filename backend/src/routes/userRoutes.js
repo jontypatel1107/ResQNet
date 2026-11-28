@@ -1,5 +1,11 @@
 import express from "express";
-import { getProfile, updateProfile } from "../controllers/userController.js";
+import {
+  getProfile,
+  updateProfile,
+  recordSafetyCheckIn,
+  getMySafetyStatus,
+  getPublicSafetyStatus,
+} from "../controllers/userController.js";
 import {
   getTrustedCircle,
   addTrustedContact,
@@ -12,11 +18,18 @@ import { authenticate } from "../middleware/authMiddleware.js";
 
 const router = express.Router();
 
+// Public Safety Status Lookup (family & relatives can search without logging in)
+router.get("/public-safety-status", getPublicSafetyStatus);
+
 router.use(authenticate);
 
 // Profile
 router.get("/profile", getProfile);
 router.put("/profile", updateProfile);
+
+// Disaster Safety Check-In ("I Am Safe")
+router.post("/safety-checkin", recordSafetyCheckIn);
+router.get("/safety-status", getMySafetyStatus);
 
 // Trusted Circle & Emergency Contacts
 router.get("/trusted-circle", getTrustedCircle);
