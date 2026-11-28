@@ -133,6 +133,18 @@ export default function VolunteerDashboard() {
       <Text style={styles.sectionTitle}>Operations</Text>
 
       <TouchableOpacity
+        style={[styles.actionCard, { borderColor: "#F59E0B" }]}
+        onPress={() => router.push("/location-map" as any)}
+      >
+        <Text style={styles.actionIcon}>⚠️</Text>
+        <View style={{ flex: 1 }}>
+          <Text style={styles.actionTitle}>Road Hazards & Blockages Map</Text>
+          <Text style={styles.actionDesc}>Live flooded roads, downed powerlines & cleared routes</Text>
+        </View>
+        <Text style={styles.chevron}>→</Text>
+      </TouchableOpacity>
+
+      <TouchableOpacity
         style={styles.actionCard}
         onPress={() => router.push("/(volunteer)/nearby-requests")}
       >

@@ -386,6 +386,15 @@ export default function CitizenDashboard() {
         </TouchableOpacity>
 
         <TouchableOpacity
+          style={[styles.card, { borderColor: "#F59E0B", backgroundColor: "#FFFBEB" }]}
+          onPress={() => router.push("/location-map" as any)}
+        >
+          <Text style={styles.cardIcon}>⚠️</Text>
+          <Text style={[styles.cardTitle, { color: "#B45309" }]}>Road Hazards</Text>
+          <Text style={styles.cardDesc}>Flooded roads & roadblocks</Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity
           style={[styles.card, { borderColor: Colors.success, backgroundColor: "#F0FDF4" }]}
           onPress={() => router.push("/(citizen)/trusted-circle" as any)}
         >

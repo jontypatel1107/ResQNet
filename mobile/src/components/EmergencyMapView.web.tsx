@@ -3,6 +3,7 @@ import { Alert, StyleSheet, Text, TouchableOpacity, View } from "react-native";
 import * as Linking from "expo-linking";
 import { Colors } from "../constants/colors";
 import { buildGoogleMapsUrl, MapCoordinates } from "../utils/location";
+import { Hazard } from "../types";
 
 type EmergencyMapViewProps = MapCoordinates & {
   title?: string;
@@ -20,6 +21,11 @@ type EmergencyMapViewProps = MapCoordinates & {
     timestamp?: string;
   }[];
   responderName?: string;
+  hazards?: Hazard[];
+  showIncidentMarker?: boolean;
+  focusedHazardCoords?: { latitude: number; longitude: number } | null;
+  selectedPinCoords?: { latitude: number; longitude: number } | null;
+  onSelectMapLocation?: (coords: { latitude: number; longitude: number }) => void;
 };
 
 export default function EmergencyMapViewWeb({

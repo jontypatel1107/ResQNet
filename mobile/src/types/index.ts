@@ -301,3 +301,35 @@ export interface PublicSafetyResult {
   coordinates?: [number, number] | null;
   note?: string;
 }
+
+export type HazardType =
+  | "flooded_road"
+  | "downed_powerline"
+  | "fallen_tree"
+  | "collapsed_structure"
+  | "gas_leak"
+  | "landslide"
+  | "other";
+
+export type HazardSeverity = "low" | "medium" | "high" | "critical";
+
+export interface Hazard {
+  _id: string;
+  type: HazardType;
+  title: string;
+  description?: string;
+  severity: HazardSeverity;
+  status: "active" | "cleared";
+  location: {
+    type: "Point";
+    coordinates: [number, number]; // [longitude, latitude]
+  };
+  address?: string;
+  reportedBy?: string | { _id: string; name: string; role: string };
+  reporterName?: string;
+  clearedBy?: string | { _id: string; name: string; role: string };
+  clearedAt?: string | null;
+  clearedNotes?: string;
+  createdAt: string;
+  updatedAt?: string;
+}

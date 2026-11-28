@@ -414,6 +414,20 @@ export default function VolunteerAssignments() {
         />
       </View>
 
+      {/* Road Hazards Quick Access Banner */}
+      <TouchableOpacity
+        style={styles.hazardShortcutBanner}
+        onPress={() => router.push("/location-map" as any)}
+        activeOpacity={0.8}
+      >
+        <Text style={styles.hazardShortcutIcon}>⚠️</Text>
+        <View style={{ flex: 1 }}>
+          <Text style={styles.hazardShortcutTitle}>Live Road Hazards & Blockages Map</Text>
+          <Text style={styles.hazardShortcutDesc}>Check flooded roads or mark cleared routes</Text>
+        </View>
+        <Text style={styles.hazardShortcutChevron}>→</Text>
+      </TouchableOpacity>
+
       {!available ? (
         <View style={styles.dutyNoticeStrip}>
           <Text style={styles.dutyNoticeText}>
@@ -659,5 +673,33 @@ const styles = StyleSheet.create({
     color: "#92400E",
     fontSize: 11,
     lineHeight: 15,
+  },
+  hazardShortcutBanner: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#FFFBEB",
+    borderBottomWidth: 1,
+    borderBottomColor: "#FDE68A",
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    gap: 10,
+  },
+  hazardShortcutIcon: {
+    fontSize: 20,
+  },
+  hazardShortcutTitle: {
+    fontSize: 13,
+    fontWeight: "700",
+    color: "#92400E",
+  },
+  hazardShortcutDesc: {
+    fontSize: 11,
+    color: "#B45309",
+    marginTop: 1,
+  },
+  hazardShortcutChevron: {
+    fontSize: 16,
+    fontWeight: "700",
+    color: "#D97706",
   },
 });
